@@ -7,116 +7,72 @@ import "CoreLibs/animation"
 local pd <const> = playdate
 local gfx <const> = playdate.graphics
 
---local playerImagetable = gfx.imagetable.new("images/Boat")
---local playerAnimation = gfx.animation.loop.new(50, playerImagetable, true)
+local playerImagetable = gfx.imagetable.new("images/Boat")
+local playerImagetableSize = playerImagetable:getLength()
 
 -- Player variables
-local playerVelocity = 0
+local playerVelocity = 2
+local playerSpeedMode = 1  -- 1: Normal speed, 2: Fast speed, 0: No speed
 local playerX, playerY = 200, 120
-local playerPaddleRotationPower = 50
-local playerPaddle = "both"
+
+-- Velocity inertia variables
+local xVelocity = 0
+local yVelocity = 0
+local targetXVelocity = 0
+local targetYVelocity = 0
+local velocityInterpolationSpeed = 0.1  -- Smoothness of velocity transitions (0.0-1.0)
 
 -- Player image
-local playerImage = gfx.image.new("images/Boat")
-local playerSprite = gfx.sprite.new(playerImage)
-local playerImageWidth, playerImageHeight = playerImage:getSize()
+local playerSprite = gfx.sprite.new(playerImagetable:getImage(1))
+local playerImageWidth, playerImageHeight = playerImagetable:getImage(1):getSize()
 playerSprite:setCollideRect(0, 0, playerImageWidth, playerImageHeight)
 playerSprite:moveTo(playerX, playerY)
 playerSprite:add()
 
--- Rotation variables
-local targetRotation = playerSprite:getRotation()  -- Desired rotation angle
-local defaultRotationInterpolationSpeed = 0.1  -- Initial interpolation rate (adjust for smoothness)
-local rotationInterpolationSpeed = 0.1  -- Initial interpolation rate (adjust for smoothness)
-local attenuationFactor = 0.98  -- How much speed decays each frame (0.95-0.99 for subtle decay)
-local minInterpolationSpeed = 0.01  -- Minimum speed to prevent full stop
-
--- Helper function to normalize an angle to 0-360 degrees
-local function normalizeAngle(angle)
-    return angle % 360
+function math.clamp(val, lower, upper)
+    return math.max(lower, math.min(upper, val))
 end
 
--- Helper function to get the shortest angle difference (handles wrapping)
-local function shortestAngleDifference(from, to)
-    local diff = normalizeAngle(to - from)
-    if diff > 180 then
-        diff = diff - 360
-    end
-    return diff
+function math.normalizeAngle(angle)
+    return angle % 360
 end
 
 function playdate.update()
     -- Update sprites
     gfx.sprite.update()
-    --playerAnimation:draw(50, 50)
+    gfx.drawText("Boat speed mode: " .. playerSpeedMode, 10, 10)
 
     -- Draw crank indicator if crank is docked
     if pd.isCrankDocked() then
         pd.ui.crankIndicator:draw()
+        return
     else
-        if pd.buttonJustReleased(pd.kButtonLeft) then
-            playerPaddle = "left"
-        elseif pd.buttonJustReleased(pd.kButtonRight) then
-            playerPaddle = "right"
-        elseif pd.buttonJustReleased(pd.kButtonDown) then
-            playerPaddle = "both"
+        if pd.buttonJustReleased(pd.kButtonDown) then
+            playerSpeedMode = math.clamp(playerSpeedMode - 1, 0, 2)
+        elseif pd.buttonJustReleased(pd.kButtonUp) then
+            playerSpeedMode = math.clamp(playerSpeedMode + 1, 0, 2)
         end
 
         -- Calculate velocity from crank angle 
-        local crankPosition = pd.getCrankPosition() - 90
-        local crankChange, crankAcceleratedChange = pd.getCrankChange()
-        local crankTicks = pd.getCrankTicks(1)
-        local playerRotation = playerSprite:getRotation()
-        local playerRotationForVelocity = playerRotation - 90
-        local xVelocity = 0
-        local yVelocity = 0
-        print("playerRotation: " .. playerRotation)
-        
-        -- Move player
-        if crankTicks == 1 then
-            if playerPaddle == "left" then
-                targetRotation = targetRotation - playerPaddleRotationPower
-                rotationInterpolationSpeed = defaultRotationInterpolationSpeed  -- Reset speed on input
-            elseif playerPaddle == "right" then
-                targetRotation = targetRotation + playerPaddleRotationPower
-                rotationInterpolationSpeed = defaultRotationInterpolationSpeed
-            elseif playerPaddle == "both" then
-                playerVelocity += 1
-            end
-        elseif crankTicks == -1 then
-            if playerPaddle == "left" then
-                targetRotation = targetRotation + playerPaddleRotationPower
-                rotationInterpolationSpeed = defaultRotationInterpolationSpeed
-            elseif playerPaddle == "right" then
-                targetRotation = targetRotation - playerPaddleRotationPower
-                rotationInterpolationSpeed = defaultRotationInterpolationSpeed
-            elseif playerPaddle == "both" then
-                playerVelocity -= 1
-            end
-        end
+        local crankPosition = pd.getCrankPosition()
+        local crankPositionForVelocity = crankPosition - 90
 
-        -- Interpolate player position from velocity
-        xVelocity = math.cos(math.rad(playerRotationForVelocity)) * playerVelocity
-        yVelocity = math.sin(math.rad(playerRotationForVelocity)) * playerVelocity
+        -- Calculate target velocities based on crank position
+        targetXVelocity = math.cos(math.rad(crankPositionForVelocity)) * playerVelocity * playerSpeedMode
+        targetYVelocity = math.sin(math.rad(crankPositionForVelocity)) * playerVelocity * playerSpeedMode
+
+        -- Interpolate velocities toward target for smooth inertia
+        xVelocity = xVelocity + (targetXVelocity - xVelocity) * velocityInterpolationSpeed
+        yVelocity = yVelocity + (targetYVelocity - yVelocity) * velocityInterpolationSpeed
+
+        -- Calculate sprite index from interpolated velocity direction
+        local currentVelocityAngle = math.deg(math.atan2(yVelocity, xVelocity)) + 90
+        currentVelocityAngle = math.normalizeAngle(currentVelocityAngle)
+
+        local playerSpriteIndexFromAngle = math.clamp(math.ceil(currentVelocityAngle / 7.5), 1, playerImagetableSize)
+        playerSprite:setImage(playerImagetable:getImage(playerSpriteIndexFromAngle))
+
+        -- Apply interpolated velocity to sprite
         playerSprite:moveBy(xVelocity, yVelocity)
-        playerVelocity -= 0.01
-
-        -- Normalize targetRotation after setting it
-        targetRotation = normalizeAngle(targetRotation)
-
-        -- Interpolate playerRotation toward targetRotation using shortest path
-        local rotationDifference = shortestAngleDifference(playerRotation, targetRotation)
-
-        if math.abs(rotationDifference) > 0.5 then
-            playerRotation = normalizeAngle(playerRotation + (rotationDifference * rotationInterpolationSpeed))
-            playerSprite:setRotation(playerRotation)
-        end
-
-        -- Attenuate the interpolation speed over time
-        rotationInterpolationSpeed = math.max(rotationInterpolationSpeed * attenuationFactor, minInterpolationSpeed)
-
-        if (playerVelocity < 0) then
-            playerVelocity = 0
-        end
     end
 end
