@@ -7,13 +7,21 @@ import "CoreLibs/animation"
 local pd <const> = playdate
 local gfx <const> = playdate.graphics
 
+local GameState = {
+    ALIVE = 1,
+    CRASHED = 2
+}
+
+local BoatGameState = GameState.ALIVE
+
 local playerImagetable = gfx.imagetable.new("images/Boat")
 local playerImagetableSize = playerImagetable:getLength()
 
 -- Player variables
 local playerVelocity = 2
-local playerSpeedMode = 1  -- 1: Normal speed, 2: Fast speed, 0: No speed
-local playerX, playerY = 200, 120
+local playerSpeedMode = 1  -- 0: No speed, 1: Normal speed, 2: Fast speed
+local playerStartX, playerStartY = 350, 150
+local playerX, playerY = playerStartX, playerStartY
 
 -- Velocity inertia variables
 local xVelocity = 0
@@ -22,11 +30,68 @@ local targetXVelocity = 0
 local targetYVelocity = 0
 local velocityInterpolationSpeed = 0.1  -- Smoothness of velocity transitions (0.0-1.0)
 
+-- Water stream velocity
+local waterStreamVelocity = 1  -- X+ direction velocity from water stream
+
+local waterVelocity = 1
+local waterImagetable = gfx.imagetable.new("images/Water")
+local waterAnimation = gfx.animation.loop.new(1000, waterImagetable, true)
+local waterImage = gfx.image.new("images/WaterBackground")
+local waterSprite = gfx.sprite.new(waterImage)
+waterSprite:moveTo(0, 140)
+waterSprite:add()
+
+local rockVelocity = 1
+local rockImage = gfx.image.new("images/Rock")
+local rockImageWidth, rockImageHeight = rockImage:getSize()
+local maxRocks = 5
+local rockSprites = {}
+
+for i = 1, maxRocks do
+    local rock = gfx.sprite.new(rockImage)
+    rock:setCollideRect(0, 0, rockImageWidth, rockImageHeight)
+    rock.collisionResponse = gfx.sprite.kCollisionTypeOverlap
+    rock:moveTo(-20, -100)
+    rock:setVisible(false)
+    rock.active = false
+    rock:add()
+    rockSprites[i] = rock
+end
+
+local function spawnRockGroup()
+    local groupSize = math.random(2, maxRocks)
+
+    for i = 1, maxRocks do
+        if i <= groupSize then
+            rockSprites[i].active = true
+            rockSprites[i]:setVisible(true)
+            rockSprites[i]:moveTo(-20 - ((i - 1) * 40), math.random(50, 190))
+        else
+            rockSprites[i].active = false
+            rockSprites[i]:setVisible(false)
+            rockSprites[i]:moveTo(-20, -100)
+        end
+    end
+end
+
+local function allRocksOffscreen()
+    for i = 1, maxRocks do
+        if rockSprites[i].active and rockSprites[i].x <= 410 then
+            return false
+        end
+    end
+
+    return true
+end
+
+spawnRockGroup()
+
 -- Player image
 local playerSprite = gfx.sprite.new(playerImagetable:getImage(1))
 local playerImageWidth, playerImageHeight = playerImagetable:getImage(1):getSize()
-playerSprite:setCollideRect(0, 0, playerImageWidth, playerImageHeight)
-playerSprite:moveTo(playerX, playerY)
+playerSprite.collisionResponse = gfx.sprite.kCollisionTypeOverlap
+playerSprite:setCollideRect(0, 10, playerImageWidth, playerImageHeight - 10)
+playerSprite:moveTo(playerStartX, playerStartY)
 playerSprite:add()
 
 function math.clamp(val, lower, upper)
@@ -40,17 +105,60 @@ end
 function playdate.update()
     -- Update sprites
     gfx.sprite.update()
-    gfx.drawText("Boat speed mode: " .. playerSpeedMode, 10, 10)
 
     -- Draw crank indicator if crank is docked
     if pd.isCrankDocked() then
         pd.ui.crankIndicator:draw()
         return
-    else
-        if pd.buttonJustReleased(pd.kButtonDown) then
-            playerSpeedMode = math.clamp(playerSpeedMode - 1, 0, 2)
-        elseif pd.buttonJustReleased(pd.kButtonUp) then
+    end
+
+    if BoatGameState == GameState.CRASHED then
+        gfx.drawText("You crashed! Press A to restart.", 10, 10)
+
+        if pd.buttonJustReleased(pd.kButtonA) then
+            -- Reset game state
+            BoatGameState = GameState.ALIVE
+
+            xVelocity = 0
+            yVelocity = 0
+            playerX = playerStartX
+            playerY = playerStartY
+            rockVelocity = 1
+            waterVelocity = 1
+
+            for i = 1, maxRocks do
+                rockSprites[i].active = false
+                rockSprites[i]:setVisible(false)
+                rockSprites[i]:moveTo(-20, -100)
+            end
+        end
+    end
+
+    if BoatGameState == GameState.ALIVE then
+        gfx.drawText("Boat speed mode: " .. playerSpeedMode, 10, 10)
+
+        waterSprite:moveBy(waterVelocity, 0)
+
+        if (waterSprite.x >= 400) then
+            waterSprite:moveTo(0, 140)
+        end
+
+        for i = 1, maxRocks do
+            if rockSprites[i].active then
+                rockSprites[i]:moveBy(rockVelocity, 0)
+            end
+        end
+
+        if allRocksOffscreen() then
+            spawnRockGroup()
+            rockVelocity += 0.5
+            waterVelocity += 0.5
+        end
+
+        if pd.buttonJustReleased(pd.kButtonUp) then
             playerSpeedMode = math.clamp(playerSpeedMode + 1, 0, 2)
+        elseif pd.buttonJustReleased(pd.kButtonDown) then
+            playerSpeedMode = math.clamp(playerSpeedMode - 1, 0, 2)
         end
 
         -- Calculate velocity from crank angle 
@@ -72,7 +180,37 @@ function playdate.update()
         local playerSpriteIndexFromAngle = math.clamp(math.ceil(currentVelocityAngle / 7.5), 1, playerImagetableSize)
         playerSprite:setImage(playerImagetable:getImage(playerSpriteIndexFromAngle))
 
-        -- Apply interpolated velocity to sprite
-        playerSprite:moveBy(xVelocity, yVelocity)
+        -- Add water stream velocity in X+ direction
+        --xVelocity = xVelocity + 
+
+        -- Update position with velocity and handle collisions
+        playerX = playerX + xVelocity + waterStreamVelocity
+        playerY = playerY + yVelocity
+
+        local actualX, actualY, collisions, length = playerSprite:moveWithCollisions(playerX, playerY)
+
+        -- Update tracked position to actual position after collision
+        playerX = actualX
+        playerY = actualY
+
+        -- Pixel-perfect collision check: iterate collisions and use sprite:alphaCollision
+        if length > 0 then
+            local didAlphaCollision = false
+
+            for i = 1, length do
+                local other = collisions[i].other
+
+                if other then
+                    if playerSprite:alphaCollision(other) then
+                        didAlphaCollision = true
+                        break
+                    end
+                end
+            end
+
+            if didAlphaCollision then
+                BoatGameState = GameState.CRASHED
+            end
+        end
     end
 end
