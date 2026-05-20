@@ -18,10 +18,18 @@ local playerImagetable = gfx.imagetable.new("images/Boat")
 local playerImagetableSize = playerImagetable:getLength()
 
 -- Player variables
+local playerScore = 0
 local playerVelocity = 2
 local playerSpeedMode = 1  -- 0: No speed, 1: Normal speed, 2: Fast speed
 local playerStartX, playerStartY = 350, 150
 local playerX, playerY = playerStartX, playerStartY
+
+local scoreTimer = pd.timer.new(1000, function()
+    if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
+        playerScore += 10
+    end
+end)
+scoreTimer.repeats = true
 
 -- Velocity inertia variables
 local xVelocity = 0
@@ -35,20 +43,22 @@ local waterStreamVelocity = 1  -- X+ direction velocity from water stream
 
 local waterVelocity = 1
 local waterImagetable = gfx.imagetable.new("images/Water")
-local waterAnimation = gfx.animation.loop.new(1000, waterImagetable, true)
 local waterImage = gfx.image.new("images/WaterBackground")
 local waterSprite = gfx.sprite.new(waterImage)
 waterSprite:moveTo(0, 140)
 waterSprite:add()
 
 local rockVelocity = 1
-local rockImage = gfx.image.new("images/Rock")
-local rockImageWidth, rockImageHeight = rockImage:getSize()
+local rockImage1 = gfx.image.new("images/Rock1")
+local rockImage2 = gfx.image.new("images/Rock2")
+local rockImage3 = gfx.image.new("images/Rock3")
+local rockImages = { rockImage1, rockImage2, rockImage3 }
+local rockImageWidth, rockImageHeight = rockImage1:getSize()
 local maxRocks = 5
 local rockSprites = {}
 
 for i = 1, maxRocks do
-    local rock = gfx.sprite.new(rockImage)
+    local rock = gfx.sprite.new(rockImages[math.random(#rockImages)])
     rock:setCollideRect(0, 0, rockImageWidth, rockImageHeight)
     rock.collisionResponse = gfx.sprite.kCollisionTypeOverlap
     rock:moveTo(-20, -100)
@@ -105,6 +115,9 @@ end
 function playdate.update()
     -- Update sprites
     gfx.sprite.update()
+    pd.timer.updateTimers()
+
+    gfx.drawText("Score: " .. playerScore, 300, 10)
 
     -- Draw crank indicator if crank is docked
     if pd.isCrankDocked() then
@@ -125,6 +138,9 @@ function playdate.update()
             playerY = playerStartY
             rockVelocity = 1
             waterVelocity = 1
+            playerSpeedMode = 1
+            playerScore = 0
+            scoreTimer:reset(1000)
 
             for i = 1, maxRocks do
                 rockSprites[i].active = false
@@ -132,9 +148,7 @@ function playdate.update()
                 rockSprites[i]:moveTo(-20, -100)
             end
         end
-    end
-
-    if BoatGameState == GameState.ALIVE then
+    elseif BoatGameState == GameState.ALIVE then
         gfx.drawText("Boat speed mode: " .. playerSpeedMode, 10, 10)
 
         waterSprite:moveBy(waterVelocity, 0)
@@ -155,10 +169,12 @@ function playdate.update()
             waterVelocity += 0.5
         end
 
-        if pd.buttonJustReleased(pd.kButtonUp) then
-            playerSpeedMode = math.clamp(playerSpeedMode + 1, 0, 2)
-        elseif pd.buttonJustReleased(pd.kButtonDown) then
-            playerSpeedMode = math.clamp(playerSpeedMode - 1, 0, 2)
+        if pd.buttonJustPressed(pd.kButtonB) and playerSpeedMode == 1 then
+            playerSpeedMode = 2
+        elseif pd.buttonJustReleased(pd.kButtonB) then
+            playerSpeedMode = 1
+        elseif pd.buttonJustReleased(pd.kButtonA) then
+            playerSpeedMode = 0
         end
 
         -- Calculate velocity from crank angle 
@@ -179,9 +195,6 @@ function playdate.update()
 
         local playerSpriteIndexFromAngle = math.clamp(math.ceil(currentVelocityAngle / 7.5), 1, playerImagetableSize)
         playerSprite:setImage(playerImagetable:getImage(playerSpriteIndexFromAngle))
-
-        -- Add water stream velocity in X+ direction
-        --xVelocity = xVelocity + 
 
         -- Update position with velocity and handle collisions
         playerX = playerX + xVelocity + waterStreamVelocity
