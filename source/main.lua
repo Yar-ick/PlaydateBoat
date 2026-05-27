@@ -2,6 +2,8 @@ import "CoreLibs/graphics"
 import "CoreLibs/ui"
 import "CoreLibs/crank"
 import "CoreLibs/animation"
+import "CoreLibs/object"
+import "pdParticles"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -36,7 +38,7 @@ local xVelocity = 0
 local yVelocity = 0
 local targetXVelocity = 0
 local targetYVelocity = 0
-local velocityInterpolationSpeed = 0.1  -- Smoothness of velocity transitions (0.0-1.0)
+local velocityInterpolationSpeed = 0.25  -- Smoothness of velocity transitions (0.0-1.0)
 
 -- Water stream velocity
 local waterStreamVelocity = 1  -- X+ direction velocity from water stream
@@ -54,55 +56,111 @@ local rockImage2 = gfx.image.new("images/Rock2")
 local rockImage3 = gfx.image.new("images/Rock3")
 local rockImages = { rockImage1, rockImage2, rockImage3 }
 local rockImageWidth, rockImageHeight = rockImage1:getSize()
-local maxRocks = 5
+local maxRocks = 10
 local rockSprites = {}
+local nextRockIndex = 1
+local rockMaxY = 240 - rockImageHeight / 2
 
 for i = 1, maxRocks do
     local rock = gfx.sprite.new(rockImages[math.random(#rockImages)])
     rock:setCollideRect(0, 0, rockImageWidth, rockImageHeight)
     rock.collisionResponse = gfx.sprite.kCollisionTypeOverlap
     rock:moveTo(-20, -100)
-    rock:setVisible(false)
-    rock.active = false
+    rock:setVisible(true)
+    rock.active = true
     rock:add()
     rockSprites[i] = rock
 end
 
-local function spawnRockGroup()
-    local groupSize = math.random(2, maxRocks)
-
-    for i = 1, maxRocks do
-        if i <= groupSize then
-            rockSprites[i].active = true
-            rockSprites[i]:setVisible(true)
-            rockSprites[i]:moveTo(-20 - ((i - 1) * 40), math.random(50, 190))
-        else
-            rockSprites[i].active = false
-            rockSprites[i]:setVisible(false)
-            rockSprites[i]:moveTo(-20, -100)
-        end
-    end
+for i = 1, maxRocks do
+    rockSprites[i]:moveTo(-20 - ((i - 1) * (rockImageWidth + 20)), math.random(50, rockMaxY))
 end
 
-local function allRocksOffscreen()
-    for i = 1, maxRocks do
-        if rockSprites[i].active and rockSprites[i].x <= 410 then
-            return false
-        end
-    end
-
-    return true
+local function resetRockPosition(rock)
+    rock:moveTo(-20, math.random(50, rockMaxY))
+    rock:setImage(rockImages[math.random(#rockImages)])
 end
 
-spawnRockGroup()
+local velocityIncreaseTimer = pd.timer.new(5000, function()
+    rockVelocity = rockVelocity + 0.5
+    waterVelocity = waterVelocity + 0.5
+end)
+velocityIncreaseTimer.repeats = true
+velocityIncreaseTimer:pause()
 
 -- Player image
 local playerSprite = gfx.sprite.new(playerImagetable:getImage(1))
 local playerImageWidth, playerImageHeight = playerImagetable:getImage(1):getSize()
 playerSprite.collisionResponse = gfx.sprite.kCollisionTypeOverlap
-playerSprite:setCollideRect(0, 10, playerImageWidth, playerImageHeight - 10)
+playerSprite:setCollideRect(playerImageWidth / 4, playerImageHeight / 2.5, playerImageWidth / 2, playerImageHeight / 3)
 playerSprite:moveTo(playerStartX, playerStartY)
 playerSprite:add()
+
+local waterParticles = ParticlePoly(200, 120)
+local waterParticlesDefaultSpeed = {2, 3}
+local waterParticlesHighSpeed = {4, 6}
+waterParticles:setSize(3, 4)
+waterParticles:setPoints(3, 3)
+waterParticles:setSpread(160, 200)
+waterParticles:setMode(Particles.modes.DECAY)
+waterParticles:setDecay(0.1)
+waterParticles:setThickness(2, 3)
+waterParticles:setSpeed(waterParticlesDefaultSpeed[1], waterParticlesDefaultSpeed[2])
+waterParticles:setAngular(10, 25)
+local slowSpawnParticlesCounter = 0
+
+-- Particle emitter offsets for each sprite direction (indexed by playerSpriteIndexFromAngle)
+-- Each entry is {offsetX, offsetY} relative to boat center
+local playerParticleEmitterOffsets = {
+    {x = 0, y = 25},    -- 1 frame
+    {x = -5, y = 26},   -- 2 frame
+    {x = -9, y = 26},   -- 3 frame
+    {x = -13, y = 26},  -- 4 frame
+    {x = -17, y = 26},   -- 5 frame
+    {x = -19, y = 24},   -- 6 frame
+    {x = -21, y = 24},   -- 7 frame
+    {x = -24, y = 23},   -- 8 frame
+    {x = -24, y = 22},   -- 9 frame
+    {x = -26, y = 20},   -- 10 frame
+    {x = -28, y = 17},   -- 11 frame
+    {x = -29, y = 14},   -- 12 frame
+    {x = -30, y = 11},   -- 13 frame
+    {x = -31, y = 8},   -- 14 frame
+    {x = -30, y = 3},   -- 15 frame
+    {x = -29, y = -1},   -- 16 frame
+    {x = -27, y = -5},   -- 17 frame
+    {x = -25, y = -7},   -- 18 frame
+    {x = -23, y = -7},   -- 19 frame
+    {x = -22, y = -9},   -- 20 frame
+    {x = -19, y = -10},   -- 21 frame
+    {x = -16, y = -11},   -- 22 frame
+    {x = -11, y = -14},   -- 23 frame
+    {x = -6, y = -16},   -- 24 frame
+    {x = -2, y = -15},   -- 25 frame
+    {x = 3, y = -15},   -- 26 frame
+    {x = 7, y = -15},   -- 27 frame
+    {x = 10, y = -14},   -- 28 frame
+    {x = 13, y = -13},   -- 29 frame
+    {x = 15, y = -12},   -- 30 frame
+    {x = 17, y = -8},   -- 31 frame
+    {x = 22, y = -6},   -- 32 frame
+    {x = 24, y = -5},   -- 33 frame
+    {x = 26, y = -1},   -- 34 frame
+    {x = 28, y = 3},   -- 35 frame
+    {x = 29, y = 6},   -- 36 frame
+    {x = 29, y = 9},   -- 37 frame
+    {x = 28, y = 13},   -- 38 frame
+    {x = 27, y = 16},   -- 39 frame
+    {x = 24, y = 19},   -- 40 frame
+    {x = 22, y = 21},   -- 41 frame
+    {x = 21, y = 23},   -- 42 frame
+    {x = 19, y = 24},   -- 43 frame
+    {x = 17, y = 25},   -- 44 frame
+    {x = 15, y = 26},   -- 45 frame
+    {x = 12, y = 28},   -- 46 frame
+    {x = 8, y = 29},   -- 47 frame
+    {x = 4, y = 30},   -- 48 frame
+}
 
 function math.clamp(val, lower, upper)
     return math.max(lower, math.min(upper, val))
@@ -110,6 +168,12 @@ end
 
 function math.normalizeAngle(angle)
     return angle % 360
+end
+
+function playdate.crankUndocked()
+    if BoatGameState == GameState.ALIVE then
+        velocityIncreaseTimer:start()
+    end
 end
 
 function playdate.update()
@@ -122,6 +186,7 @@ function playdate.update()
     -- Draw crank indicator if crank is docked
     if pd.isCrankDocked() then
         pd.ui.crankIndicator:draw()
+        velocityIncreaseTimer:pause()
         return
     end
 
@@ -140,12 +205,16 @@ function playdate.update()
             waterVelocity = 1
             playerSpeedMode = 1
             playerScore = 0
+            nextRockIndex = 1
             scoreTimer:reset(1000)
+            velocityIncreaseTimer:reset(5000)
+            velocityIncreaseTimer:start()
 
             for i = 1, maxRocks do
-                rockSprites[i].active = false
-                rockSprites[i]:setVisible(false)
-                rockSprites[i]:moveTo(-20, -100)
+                rockSprites[i].active = true
+                rockSprites[i]:setVisible(true)
+                rockSprites[i]:setImage(rockImages[math.random(#rockImages)])
+                rockSprites[i]:moveTo(-20 - ((i - 1) * (rockImageWidth + 10)), math.random(50, rockMaxY))
             end
         end
     elseif BoatGameState == GameState.ALIVE then
@@ -158,21 +227,20 @@ function playdate.update()
         end
 
         for i = 1, maxRocks do
-            if rockSprites[i].active then
-                rockSprites[i]:moveBy(rockVelocity, 0)
+            rockSprites[i]:moveBy(rockVelocity, 0)
+            
+            if rockSprites[i].x > 410 then
+                resetRockPosition(rockSprites[i])
             end
         end
 
-        if allRocksOffscreen() then
-            spawnRockGroup()
-            rockVelocity += 0.5
-            waterVelocity += 0.5
-        end
-
+        -- Update player position before moving the emitter so particles emit from the boat engine end
         if pd.buttonJustPressed(pd.kButtonB) and playerSpeedMode == 1 then
             playerSpeedMode = 2
+            waterParticles:setSpeed(waterParticlesHighSpeed[1], waterParticlesHighSpeed[2])
         elseif pd.buttonJustReleased(pd.kButtonB) then
             playerSpeedMode = 1
+            waterParticles:setSpeed(waterParticlesDefaultSpeed[1], waterParticlesDefaultSpeed[2])
         elseif pd.buttonJustReleased(pd.kButtonA) then
             playerSpeedMode = 0
         end
@@ -181,9 +249,19 @@ function playdate.update()
         local crankPosition = pd.getCrankPosition()
         local crankPositionForVelocity = crankPosition - 90
 
+        local playerVelocityMultiplier = 1
+
+        if playerSpeedMode == 1 then
+            playerVelocityMultiplier = 1
+        elseif playerSpeedMode == 2 then
+            playerVelocityMultiplier = 2.25
+        elseif playerSpeedMode == 0 then
+            playerVelocityMultiplier = 0
+        end
+
         -- Calculate target velocities based on crank position
-        targetXVelocity = math.cos(math.rad(crankPositionForVelocity)) * playerVelocity * playerSpeedMode
-        targetYVelocity = math.sin(math.rad(crankPositionForVelocity)) * playerVelocity * playerSpeedMode
+        targetXVelocity = math.cos(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
+        targetYVelocity = math.sin(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
 
         -- Interpolate velocities toward target for smooth inertia
         xVelocity = xVelocity + (targetXVelocity - xVelocity) * velocityInterpolationSpeed
@@ -205,6 +283,40 @@ function playdate.update()
         -- Update tracked position to actual position after collision
         playerX = actualX
         playerY = actualY
+        playerX = math.clamp(playerX, playerImageWidth / 2, 400 - playerImageWidth / 3)
+        playerY = math.clamp(playerY, playerImageHeight / 2, 240 - playerImageHeight / 3)
+        playerSprite:moveTo(playerX, playerY)
+
+        -- Move particles to the boat engine end using preset offsets based on sprite index
+        waterParticles:update()
+        do
+            -- Get the current sprite angle for particle spread
+            local waterParticlesAngle = math.normalizeAngle(currentVelocityAngle + 180)  -- Oposite direction of movement
+            waterParticlesAngle = math.floor(waterParticlesAngle)
+            print("waterParticlesAngle: " .. waterParticlesAngle)
+            
+            -- Use preset emitter offset for this sprite direction
+            local emitterOffset = playerParticleEmitterOffsets[playerSpriteIndexFromAngle]
+            local engineX = playerX + emitterOffset.x
+            local engineY = playerY + emitterOffset.y
+            
+            -- Set spread cone around sprite direction (±25 degrees)
+            local spreadRange = 30
+            waterParticles:setSpread(waterParticlesAngle - spreadRange, waterParticlesAngle + spreadRange)
+
+            waterParticles:moveTo(engineX, engineY)
+        end
+
+        if playerSpeedMode == 2 then
+            waterParticles:add(2)
+        elseif playerSpeedMode == 1 then
+            slowSpawnParticlesCounter += 1
+
+            if slowSpawnParticlesCounter >= 3 then
+                waterParticles:add(2)
+                slowSpawnParticlesCounter = 0
+            end
+        end
 
         -- Pixel-perfect collision check: iterate collisions and use sprite:alphaCollision
         if length > 0 then
@@ -223,6 +335,7 @@ function playdate.update()
 
             if didAlphaCollision then
                 BoatGameState = GameState.CRASHED
+                velocityIncreaseTimer:pause()
             end
         end
     end
