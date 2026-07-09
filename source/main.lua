@@ -3,7 +3,6 @@ import "CoreLibs/ui"
 import "CoreLibs/crank"
 import "CoreLibs/animation"
 import "CoreLibs/object"
-import "pdParticles"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -18,17 +17,23 @@ local BoatGameState = GameState.ALIVE
 
 local playerImagetable = gfx.imagetable.new("images/Boat")
 local playerImagetableSize = playerImagetable:getLength()
+local explosionImagetable = gfx.imagetable.new("images/Explosion")
+local explosionX, explosionY = 0, 0
+local explosionAnimation = nil
+local explosionFrameDelay = 100
+local explosionImageWidth, explosionImageHeight = explosionImagetable:getImage(1):getSize()
 
 -- Player variables
 local playerScore = 0
+local playerScoreStep = 10
 local playerVelocity = 2
 local playerSpeedMode = 1  -- 0: No speed, 1: Normal speed, 2: Fast speed
-local playerStartX, playerStartY = 350, 150
+local playerStartX, playerStartY = 200, 130
 local playerX, playerY = playerStartX, playerStartY
 
 local scoreTimer = pd.timer.new(1000, function()
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
-        playerScore += 10
+        playerScore += playerScoreStep
     end
 end)
 scoreTimer.repeats = true
@@ -41,10 +46,9 @@ local targetYVelocity = 0
 local velocityInterpolationSpeed = 0.25  -- Smoothness of velocity transitions (0.0-1.0)
 
 -- Water stream velocity
-local waterStreamVelocity = 1  -- X+ direction velocity from water stream
+local waterStreamVelocity = 3  -- X+ direction velocity from water stream
 
 local waterVelocity = 1
-local waterImagetable = gfx.imagetable.new("images/Water")
 local waterImage = gfx.image.new("images/WaterBackground")
 local waterSprite = gfx.sprite.new(waterImage)
 waterSprite:moveTo(0, 140)
@@ -58,7 +62,6 @@ local rockImages = { rockImage1, rockImage2, rockImage3 }
 local rockImageWidth, rockImageHeight = rockImage1:getSize()
 local maxRocks = 10
 local rockSprites = {}
-local nextRockIndex = 1
 local rockMaxY = 240 - rockImageHeight / 2
 
 for i = 1, maxRocks do
@@ -84,6 +87,7 @@ end
 local velocityIncreaseTimer = pd.timer.new(5000, function()
     rockVelocity = rockVelocity + 0.5
     waterVelocity = waterVelocity + 0.5
+    playerScoreStep += 10
 end)
 velocityIncreaseTimer.repeats = true
 velocityIncreaseTimer:pause()
@@ -96,18 +100,23 @@ playerSprite:setCollideRect(playerImageWidth / 4, playerImageHeight / 2.5, playe
 playerSprite:moveTo(playerStartX, playerStartY)
 playerSprite:add()
 
-local waterParticles = ParticlePoly(200, 120)
-local waterParticlesDefaultSpeed = {2, 3}
-local waterParticlesHighSpeed = {4, 6}
-waterParticles:setSize(3, 4)
-waterParticles:setPoints(3, 3)
-waterParticles:setSpread(160, 200)
-waterParticles:setMode(Particles.modes.DECAY)
-waterParticles:setDecay(0.1)
-waterParticles:setThickness(2, 3)
-waterParticles:setSpeed(waterParticlesDefaultSpeed[1], waterParticlesDefaultSpeed[2])
-waterParticles:setAngular(10, 25)
-local slowSpawnParticlesCounter = 0
+local function resetExplosion()
+    explosionAnimation = nil
+end
+
+local function startExplosion(x, y)
+    explosionX = x
+    explosionY = y
+    explosionAnimation = gfx.animation.loop.new(explosionFrameDelay, explosionImagetable, false)
+end
+
+local function updateExplosion()
+    if explosionAnimation == nil or explosionAnimation:isValid() == false then
+        return
+    end
+
+    explosionAnimation:draw(explosionX - explosionImageWidth / 2, explosionY - explosionImageHeight / 2)
+end
 
 -- Particle emitter offsets for each sprite direction (indexed by playerSpriteIndexFromAngle)
 -- Each entry is {offsetX, offsetY} relative to boat center
@@ -116,39 +125,39 @@ local playerParticleEmitterOffsets = {
     {x = -5, y = 26},   -- 2 frame
     {x = -9, y = 26},   -- 3 frame
     {x = -13, y = 26},  -- 4 frame
-    {x = -17, y = 26},   -- 5 frame
-    {x = -19, y = 24},   -- 6 frame
-    {x = -21, y = 24},   -- 7 frame
-    {x = -24, y = 23},   -- 8 frame
-    {x = -24, y = 22},   -- 9 frame
-    {x = -26, y = 20},   -- 10 frame
-    {x = -28, y = 17},   -- 11 frame
-    {x = -29, y = 14},   -- 12 frame
-    {x = -30, y = 11},   -- 13 frame
+    {x = -17, y = 26},  -- 5 frame
+    {x = -19, y = 24},  -- 6 frame
+    {x = -21, y = 24},  -- 7 frame
+    {x = -24, y = 23},  -- 8 frame
+    {x = -24, y = 22},  -- 9 frame
+    {x = -26, y = 20},  -- 10 frame
+    {x = -28, y = 17},  -- 11 frame
+    {x = -29, y = 14},  -- 12 frame
+    {x = -30, y = 11},  -- 13 frame
     {x = -31, y = 8},   -- 14 frame
     {x = -30, y = 3},   -- 15 frame
-    {x = -29, y = -1},   -- 16 frame
-    {x = -27, y = -5},   -- 17 frame
-    {x = -25, y = -7},   -- 18 frame
-    {x = -23, y = -7},   -- 19 frame
-    {x = -22, y = -9},   -- 20 frame
-    {x = -19, y = -10},   -- 21 frame
-    {x = -16, y = -11},   -- 22 frame
-    {x = -11, y = -14},   -- 23 frame
-    {x = -6, y = -16},   -- 24 frame
-    {x = -2, y = -15},   -- 25 frame
+    {x = -29, y = -1},  -- 16 frame
+    {x = -27, y = -5},  -- 17 frame
+    {x = -25, y = -7},  -- 18 frame
+    {x = -23, y = -7},  -- 19 frame
+    {x = -22, y = -9},  -- 20 frame
+    {x = -19, y = -10}, -- 21 frame
+    {x = -16, y = -11}, -- 22 frame
+    {x = -11, y = -14}, -- 23 frame
+    {x = -6, y = -16},  -- 24 frame
+    {x = -2, y = -15},  -- 25 frame
     {x = 3, y = -15},   -- 26 frame
     {x = 7, y = -15},   -- 27 frame
-    {x = 10, y = -14},   -- 28 frame
-    {x = 13, y = -13},   -- 29 frame
-    {x = 15, y = -12},   -- 30 frame
+    {x = 10, y = -14},  -- 28 frame
+    {x = 13, y = -13},  -- 29 frame
+    {x = 15, y = -12},  -- 30 frame
     {x = 17, y = -8},   -- 31 frame
     {x = 22, y = -6},   -- 32 frame
     {x = 24, y = -5},   -- 33 frame
     {x = 26, y = -1},   -- 34 frame
-    {x = 28, y = 3},   -- 35 frame
-    {x = 29, y = 6},   -- 36 frame
-    {x = 29, y = 9},   -- 37 frame
+    {x = 28, y = 3},    -- 35 frame
+    {x = 29, y = 6},    -- 36 frame
+    {x = 29, y = 9},    -- 37 frame
     {x = 28, y = 13},   -- 38 frame
     {x = 27, y = 16},   -- 39 frame
     {x = 24, y = 19},   -- 40 frame
@@ -158,9 +167,111 @@ local playerParticleEmitterOffsets = {
     {x = 17, y = 25},   -- 44 frame
     {x = 15, y = 26},   -- 45 frame
     {x = 12, y = 28},   -- 46 frame
-    {x = 8, y = 29},   -- 47 frame
-    {x = 4, y = 30},   -- 48 frame
+    {x = 8, y = 29},    -- 47 frame
+    {x = 4, y = 30},    -- 48 frame
 }
+
+local wakeLinePoolSize = 28
+local wakeLinePool = {}
+local wakeLineCursor = 1
+local wakeLineSpawnCounter = 0
+
+for i = 1, wakeLinePoolSize do
+    wakeLinePool[i] = { active = false }
+end
+
+local function clearWakeLines()
+    for i = 1, wakeLinePoolSize do
+        wakeLinePool[i].active = false
+    end
+end
+
+local function spawnWakeLine(engineX, engineY, wakeAngle, speedMultiplier)
+    local line = wakeLinePool[wakeLineCursor]
+
+    wakeLineCursor += 1
+    if wakeLineCursor > wakeLinePoolSize then
+        wakeLineCursor = 1
+    end
+
+    local angle = wakeAngle + math.random(-12, 12)
+    local perpendicularAngle = angle + 90
+    local sideOffset = math.random(-3, 3)
+    local speed = math.random(12, 20) / 10 * speedMultiplier
+
+    line.active = true
+    line.x = engineX + math.sin(math.rad(perpendicularAngle)) * sideOffset
+    line.y = engineY - math.cos(math.rad(perpendicularAngle)) * sideOffset
+    line.dx = math.sin(math.rad(angle))
+    line.dy = -math.cos(math.rad(angle))
+    line.speed = speed
+    line.length = math.random(8, 15)
+    line.age = 0
+    line.lifetime = math.random(10, 16)
+    line.width = math.random(1, 2)
+end
+
+local function updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle)
+    for i = 1, wakeLinePoolSize do
+        local line = wakeLinePool[i]
+
+        if line.active == true then
+            local lifeProgress = line.age / line.lifetime
+
+            if lifeProgress >= 1 then
+                line.active = false
+            else
+                line.x += line.dx * line.speed + waterVelocity
+                line.y += line.dy * line.speed
+                line.age += 1
+            end
+        end
+    end
+
+    local emitterOffset = playerParticleEmitterOffsets[playerSpriteIndexFromAngle]
+    local engineX = playerX + emitterOffset.x
+    local engineY = playerY + emitterOffset.y
+    local wakeAngle = math.normalizeAngle(currentVelocityAngle + 180)
+
+    if playerSpeedMode == 2 then
+        spawnWakeLine(engineX, engineY, wakeAngle, 1.6)
+        spawnWakeLine(engineX, engineY, wakeAngle, 1.6)
+    elseif playerSpeedMode == 1 then
+        wakeLineSpawnCounter += 1
+
+        if wakeLineSpawnCounter >= 2 then
+            spawnWakeLine(engineX, engineY, wakeAngle, 1)
+            wakeLineSpawnCounter = 0
+        end
+    end
+end
+
+local function drawWakeLines()
+    local previousLineWidth = gfx.getLineWidth()
+    local previousColor = gfx.getColor()
+
+    gfx.setColor(gfx.kColorBlack)
+
+    for i = 1, wakeLinePoolSize do
+        local line = wakeLinePool[i]
+
+        if line.active == true then
+            local lifeProgress = line.age / line.lifetime
+            local lineLength = line.length * (1 - lifeProgress)
+            local lineWidth = line.width
+
+            if lifeProgress > 0.55 then
+                lineWidth = 1
+            end
+
+            gfx.setLineWidth(lineWidth)
+            gfx.drawLine(line.x, line.y, line.x + line.dx * lineLength, line.y + line.dy * lineLength)
+        end
+    end
+
+    gfx.setLineWidth(previousLineWidth)
+    gfx.setColor(previousColor)
+end
 
 function math.clamp(val, lower, upper)
     return math.max(lower, math.min(upper, val))
@@ -177,26 +288,28 @@ function playdate.crankUndocked()
 end
 
 function playdate.update()
-    -- Update sprites
-    gfx.sprite.update()
     pd.timer.updateTimers()
-
-    gfx.drawText("Score: " .. playerScore, 300, 10)
 
     -- Draw crank indicator if crank is docked
     if pd.isCrankDocked() then
+        gfx.sprite.update()
+        gfx.drawText("Score: " .. playerScore, 300, 10)
         pd.ui.crankIndicator:draw()
         velocityIncreaseTimer:pause()
         return
     end
 
     if BoatGameState == GameState.CRASHED then
+        gfx.sprite.update()
+        updateExplosion()
+        gfx.drawText("Score: " .. playerScore, 300, 10)
         gfx.drawText("You crashed! Press A to restart.", 10, 10)
 
         if pd.buttonJustReleased(pd.kButtonA) then
             -- Reset game state
             BoatGameState = GameState.ALIVE
 
+            -- Reset all relevant variables to their initial state
             xVelocity = 0
             yVelocity = 0
             playerX = playerStartX
@@ -205,10 +318,14 @@ function playdate.update()
             waterVelocity = 1
             playerSpeedMode = 1
             playerScore = 0
-            nextRockIndex = 1
+            playerScoreStep = 10
             scoreTimer:reset(1000)
             velocityIncreaseTimer:reset(5000)
             velocityIncreaseTimer:start()
+            playerSprite:setScale(1)
+            playerSprite:moveTo(playerX, playerY)
+            waterSprite:moveTo(0, 140)
+            clearWakeLines()
 
             for i = 1, maxRocks do
                 rockSprites[i].active = true
@@ -216,10 +333,10 @@ function playdate.update()
                 rockSprites[i]:setImage(rockImages[math.random(#rockImages)])
                 rockSprites[i]:moveTo(-20 - ((i - 1) * (rockImageWidth + 10)), math.random(50, rockMaxY))
             end
-        end
-    elseif BoatGameState == GameState.ALIVE then
-        gfx.drawText("Boat speed mode: " .. playerSpeedMode, 10, 10)
 
+            resetExplosion()
+        end
+        elseif BoatGameState == GameState.ALIVE then
         waterSprite:moveBy(waterVelocity, 0)
 
         if (waterSprite.x >= 400) then
@@ -237,12 +354,10 @@ function playdate.update()
         -- Update player position before moving the emitter so particles emit from the boat engine end
         if pd.buttonJustPressed(pd.kButtonB) and playerSpeedMode == 1 then
             playerSpeedMode = 2
-            waterParticles:setSpeed(waterParticlesHighSpeed[1], waterParticlesHighSpeed[2])
         elseif pd.buttonJustReleased(pd.kButtonB) then
             playerSpeedMode = 1
-            waterParticles:setSpeed(waterParticlesDefaultSpeed[1], waterParticlesDefaultSpeed[2])
         elseif pd.buttonJustReleased(pd.kButtonA) then
-            playerSpeedMode = 0
+            -- TODO Think about interesting ability on this button
         end
 
         -- Calculate velocity from crank angle 
@@ -255,8 +370,6 @@ function playdate.update()
             playerVelocityMultiplier = 1
         elseif playerSpeedMode == 2 then
             playerVelocityMultiplier = 2.25
-        elseif playerSpeedMode == 0 then
-            playerVelocityMultiplier = 0
         end
 
         -- Calculate target velocities based on crank position
@@ -287,36 +400,11 @@ function playdate.update()
         playerY = math.clamp(playerY, playerImageHeight / 2, 240 - playerImageHeight / 3)
         playerSprite:moveTo(playerX, playerY)
 
-        -- Move particles to the boat engine end using preset offsets based on sprite index
-        waterParticles:update()
-        do
-            -- Get the current sprite angle for particle spread
-            local waterParticlesAngle = math.normalizeAngle(currentVelocityAngle + 180)  -- Oposite direction of movement
-            waterParticlesAngle = math.floor(waterParticlesAngle)
-            print("waterParticlesAngle: " .. waterParticlesAngle)
-            
-            -- Use preset emitter offset for this sprite direction
-            local emitterOffset = playerParticleEmitterOffsets[playerSpriteIndexFromAngle]
-            local engineX = playerX + emitterOffset.x
-            local engineY = playerY + emitterOffset.y
-            
-            -- Set spread cone around sprite direction (±25 degrees)
-            local spreadRange = 30
-            waterParticles:setSpread(waterParticlesAngle - spreadRange, waterParticlesAngle + spreadRange)
-
-            waterParticles:moveTo(engineX, engineY)
-        end
-
-        if playerSpeedMode == 2 then
-            waterParticles:add(2)
-        elseif playerSpeedMode == 1 then
-            slowSpawnParticlesCounter += 1
-
-            if slowSpawnParticlesCounter >= 3 then
-                waterParticles:add(2)
-                slowSpawnParticlesCounter = 0
-            end
-        end
+        updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle)
+        gfx.sprite.update()
+        drawWakeLines()
+        gfx.drawText("Score: " .. playerScore, 300, 10)
+        gfx.drawText("Boat speed mode: " .. playerSpeedMode, 10, 10)
 
         -- Pixel-perfect collision check: iterate collisions and use sprite:alphaCollision
         if length > 0 then
@@ -336,6 +424,9 @@ function playdate.update()
             if didAlphaCollision then
                 BoatGameState = GameState.CRASHED
                 velocityIncreaseTimer:pause()
+                playerSprite:setScale(0)
+                clearWakeLines()
+                startExplosion(playerX, playerY)
             end
         end
     end
