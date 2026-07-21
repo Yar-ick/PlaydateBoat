@@ -3,6 +3,7 @@ import "CoreLibs/ui"
 import "CoreLibs/crank"
 import "CoreLibs/animation"
 import "CoreLibs/object"
+import "CoreLibs/sprites"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -49,10 +50,42 @@ local velocityInterpolationSpeed = 0.25  -- Smoothness of velocity transitions (
 local waterStreamVelocity = 3  -- X+ direction velocity from water stream
 
 local waterVelocity = 1
-local waterImage = gfx.image.new("images/WaterBackground")
-local waterSprite = gfx.sprite.new(waterImage)
-waterSprite:moveTo(0, 140)
+local waterTileImagetable = gfx.imagetable.new("images/AnimatedWater")
+local waterAnimationBaseDelay = 150
+local waterAnimationMinDelay = 70
+local waterTileScale = 1
+local waterStartY = 50
+local waterTileWidth, waterTileHeight = waterTileImagetable:getImage(1):getSize()
+local scaledWaterTileWidth = waterTileWidth * waterTileScale
+local scaledWaterTileHeight = waterTileHeight * waterTileScale
+
+local waterAnimation = gfx.animation.loop.new(waterAnimationBaseDelay, waterTileImagetable, true)
+local waterSprite = gfx.sprite.new()
+waterSprite:setSize(400, 240)
+waterSprite:setCenter(0, 0)
+waterSprite:moveTo(0, 0)
+waterSprite:setZIndex(-1000)
+waterSprite.draw = function()
+    local waterImage = waterAnimation:image()
+
+    if waterImage then
+        for y = waterStartY, 240, scaledWaterTileHeight do
+            for x = 0, 400, scaledWaterTileWidth do
+                waterImage:drawScaled(x, y, waterTileScale)
+            end
+        end
+    end
+end
 waterSprite:add()
+
+local function syncWaterAnimationSpeed()
+    local speedMultiplier = 1 + ((waterVelocity - 1) * 0.22)
+    waterAnimation.delay = math.max(waterAnimationMinDelay, waterAnimationBaseDelay / speedMultiplier)
+end
+
+local function updateWaterAnimation()
+    waterSprite:markDirty()
+end
 
 local rockVelocity = 1
 local rockImage1 = gfx.image.new("images/Rock1")
@@ -87,6 +120,7 @@ end
 local velocityIncreaseTimer = pd.timer.new(5000, function()
     rockVelocity = rockVelocity + 0.5
     waterVelocity = waterVelocity + 0.5
+    syncWaterAnimationSpeed()
     playerScoreStep += 10
 end)
 velocityIncreaseTimer.repeats = true
@@ -289,6 +323,7 @@ end
 
 function playdate.update()
     pd.timer.updateTimers()
+    updateWaterAnimation()
 
     -- Draw crank indicator if crank is docked
     if pd.isCrankDocked() then
@@ -316,6 +351,7 @@ function playdate.update()
             playerY = playerStartY
             rockVelocity = 1
             waterVelocity = 1
+            syncWaterAnimationSpeed()
             playerSpeedMode = 1
             playerScore = 0
             playerScoreStep = 10
@@ -324,7 +360,6 @@ function playdate.update()
             velocityIncreaseTimer:start()
             playerSprite:setScale(1)
             playerSprite:moveTo(playerX, playerY)
-            waterSprite:moveTo(0, 140)
             clearWakeLines()
 
             for i = 1, maxRocks do
@@ -337,12 +372,6 @@ function playdate.update()
             resetExplosion()
         end
         elseif BoatGameState == GameState.ALIVE then
-        waterSprite:moveBy(waterVelocity, 0)
-
-        if (waterSprite.x >= 400) then
-            waterSprite:moveTo(0, 140)
-        end
-
         for i = 1, maxRocks do
             rockSprites[i]:moveBy(rockVelocity, 0)
             
