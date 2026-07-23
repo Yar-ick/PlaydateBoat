@@ -50,77 +50,121 @@ local velocityInterpolationSpeed = 0.25  -- Smoothness of velocity transitions (
 local waterStreamVelocity = 3  -- X+ direction velocity from water stream
 
 local waterVelocity = 1
-local waterTileImagetable = gfx.imagetable.new("images/AnimatedWater")
-local waterAnimationBaseDelay = 150
-local waterAnimationMinDelay = 70
-local waterTileScale = 1
-local waterStartY = 50
-local waterTileWidth, waterTileHeight = waterTileImagetable:getImage(1):getSize()
-local scaledWaterTileWidth = waterTileWidth * waterTileScale
-local scaledWaterTileHeight = waterTileHeight * waterTileScale
+local interpolatedWaterVelocity = waterVelocity
+local waterImage = gfx.image.new("images/WaterBackground")
+local waterImageWidth = waterImage:getSize()
+local waterSprites = {}
 
-local waterAnimation = gfx.animation.loop.new(waterAnimationBaseDelay, waterTileImagetable, true)
-local waterSprite = gfx.sprite.new()
-waterSprite:setSize(400, 240)
-waterSprite:setCenter(0, 0)
-waterSprite:moveTo(0, 0)
-waterSprite:setZIndex(-1000)
-waterSprite.draw = function()
-    local waterImage = waterAnimation:image()
-
-    if waterImage then
-        for y = waterStartY, 240, scaledWaterTileHeight do
-            for x = 0, 400, scaledWaterTileWidth do
-                waterImage:drawScaled(x, y, waterTileScale)
-            end
-        end
-    end
-end
-waterSprite:add()
-
-local function syncWaterAnimationSpeed()
-    local speedMultiplier = 1 + ((waterVelocity - 1) * 0.22)
-    waterAnimation.delay = math.max(waterAnimationMinDelay, waterAnimationBaseDelay / speedMultiplier)
-end
-
-local function updateWaterAnimation()
-    waterSprite:markDirty()
+for i = 1, 2 do
+    local waterSprite = gfx.sprite.new(waterImage)
+    waterSprite:moveTo(-(i - 1) * waterImageWidth, 140)
+    waterSprite:setZIndex(-1000)
+    waterSprite:add()
+    waterSprites[i] = waterSprite
 end
 
 local rockVelocity = 1
+local interpolatedRockVelocity = rockVelocity
+local worldVelocityInterpolationSpeed = 0.08
 local rockImage1 = gfx.image.new("images/Rock1")
 local rockImage2 = gfx.image.new("images/Rock2")
 local rockImage3 = gfx.image.new("images/Rock3")
 local rockImages = { rockImage1, rockImage2, rockImage3 }
-local rockImageWidth, rockImageHeight = rockImage1:getSize()
+local rockImageWidths = {}
+local rockImageHeights = {}
 local maxRocks = 10
 local rockSprites = {}
-local rockMaxY = 240 - rockImageHeight / 2
+local rockSpawnPadding = 4
+
+for i = 1, #rockImages do
+    rockImageWidths[i], rockImageHeights[i] = rockImages[i]:getSize()
+end
+
+local function setRockImage(rock, imageIndex)
+    rock.imageIndex = imageIndex
+    rock.imageWidth = rockImageWidths[imageIndex]
+    rock.imageHeight = rockImageHeights[imageIndex]
+    rock:setImage(rockImages[imageIndex])
+    rock:setCollideRect(0, 0, rock.imageWidth, rock.imageHeight)
+end
+
+local function rocksOverlap(x, y, width, height, otherRock)
+    local horizontalDistance = math.abs(x - otherRock.x)
+    local verticalDistance = math.abs(y - otherRock.y)
+    local minimumHorizontalDistance =
+        (width + otherRock.imageWidth) / 2 + rockSpawnPadding
+    local minimumVerticalDistance =
+        (height + otherRock.imageHeight) / 2 + rockSpawnPadding
+
+    return horizontalDistance < minimumHorizontalDistance
+        and verticalDistance < minimumVerticalDistance
+end
+
+local function findRockSpawnPosition(rock)
+    local minimumX = -600
+    local maximumX = -rock.imageWidth / 2
+    local minimumY = 50 + rock.imageHeight / 2
+    local maximumY = 240 - rock.imageHeight / 2
+
+    for _ = 1, 200 do
+        local x = math.random(minimumX, maximumX)
+        local y = math.random(minimumY, maximumY)
+        local overlaps = false
+
+        for i = 1, maxRocks do
+            local otherRock = rockSprites[i]
+
+            if otherRock ~= nil
+                and otherRock ~= rock
+                and otherRock.active
+                and rocksOverlap(x, y, rock.imageWidth, rock.imageHeight, otherRock)
+            then
+                overlaps = true
+                break
+            end
+        end
+
+        if overlaps == false then
+            return x, y
+        end
+    end
+
+    return nil, nil
+end
+
+local function resetRockPosition(rock)
+    setRockImage(rock, math.random(#rockImages))
+
+    local x, y = findRockSpawnPosition(rock)
+    if x == nil then
+        rock.active = false
+        rock:setVisible(false)
+        return false
+    end
+
+    rock:moveTo(x, y)
+    rock.active = true
+    rock:setVisible(true)
+    return true
+end
 
 for i = 1, maxRocks do
-    local rock = gfx.sprite.new(rockImages[math.random(#rockImages)])
-    rock:setCollideRect(0, 0, rockImageWidth, rockImageHeight)
+    local rock = gfx.sprite.new()
     rock.collisionResponse = gfx.sprite.kCollisionTypeOverlap
     rock:moveTo(-20, -100)
-    rock:setVisible(true)
-    rock.active = true
+    rock:setVisible(false)
+    rock.active = false
     rock:add()
     rockSprites[i] = rock
 end
 
 for i = 1, maxRocks do
-    rockSprites[i]:moveTo(-20 - ((i - 1) * (rockImageWidth + 20)), math.random(50, rockMaxY))
-end
-
-local function resetRockPosition(rock)
-    rock:moveTo(-20, math.random(50, rockMaxY))
-    rock:setImage(rockImages[math.random(#rockImages)])
+    resetRockPosition(rockSprites[i])
 end
 
 local velocityIncreaseTimer = pd.timer.new(5000, function()
     rockVelocity = rockVelocity + 0.5
     waterVelocity = waterVelocity + 0.5
-    syncWaterAnimationSpeed()
     playerScoreStep += 10
 end)
 velocityIncreaseTimer.repeats = true
@@ -130,7 +174,7 @@ velocityIncreaseTimer:pause()
 local playerSprite = gfx.sprite.new(playerImagetable:getImage(1))
 local playerImageWidth, playerImageHeight = playerImagetable:getImage(1):getSize()
 playerSprite.collisionResponse = gfx.sprite.kCollisionTypeOverlap
-playerSprite:setCollideRect(playerImageWidth / 4, playerImageHeight / 2.5, playerImageWidth / 2, playerImageHeight / 3)
+playerSprite:setCollideRect(playerImageWidth / 3, playerImageHeight / 2, playerImageWidth / 3, playerImageHeight / 5)
 playerSprite:moveTo(playerStartX, playerStartY)
 playerSprite:add()
 
@@ -255,7 +299,7 @@ local function updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle)
             if lifeProgress >= 1 then
                 line.active = false
             else
-                line.x += line.dx * line.speed + waterVelocity
+                line.x += line.dx * line.speed + interpolatedWaterVelocity
                 line.y += line.dy * line.speed
                 line.age += 1
             end
@@ -323,7 +367,6 @@ end
 
 function playdate.update()
     pd.timer.updateTimers()
-    updateWaterAnimation()
 
     -- Draw crank indicator if crank is docked
     if pd.isCrankDocked() then
@@ -351,7 +394,8 @@ function playdate.update()
             playerY = playerStartY
             rockVelocity = 1
             waterVelocity = 1
-            syncWaterAnimationSpeed()
+            interpolatedRockVelocity = rockVelocity
+            interpolatedWaterVelocity = waterVelocity
             playerSpeedMode = 1
             playerScore = 0
             playerScoreStep = 10
@@ -360,23 +404,61 @@ function playdate.update()
             velocityIncreaseTimer:start()
             playerSprite:setScale(1)
             playerSprite:moveTo(playerX, playerY)
+            waterSprites[1]:moveTo(0, 140)
+            waterSprites[2]:moveTo(-waterImageWidth, 140)
             clearWakeLines()
 
             for i = 1, maxRocks do
-                rockSprites[i].active = true
-                rockSprites[i]:setVisible(true)
-                rockSprites[i]:setImage(rockImages[math.random(#rockImages)])
-                rockSprites[i]:moveTo(-20 - ((i - 1) * (rockImageWidth + 10)), math.random(50, rockMaxY))
+                rockSprites[i].active = false
+                rockSprites[i]:setVisible(false)
+            end
+
+            for i = 1, maxRocks do
+                resetRockPosition(rockSprites[i])
             end
 
             resetExplosion()
         end
         elseif BoatGameState == GameState.ALIVE then
+        interpolatedWaterVelocity +=
+            (waterVelocity - interpolatedWaterVelocity) * worldVelocityInterpolationSpeed
+        interpolatedRockVelocity +=
+            (rockVelocity - interpolatedRockVelocity) * worldVelocityInterpolationSpeed
+
+        for i = 1, 2 do
+            waterSprites[i]:moveBy(interpolatedWaterVelocity, 0)
+        end
+
+        for i = 1, 2 do
+            local waterSprite = waterSprites[i]
+            if waterSprite.x - waterImageWidth / 2 >= 400 then
+                local otherWaterSprite = waterSprites[(i % 2) + 1]
+                waterSprite:moveTo(otherWaterSprite.x - waterImageWidth, 140)
+            end
+        end
+
         for i = 1, maxRocks do
-            rockSprites[i]:moveBy(rockVelocity, 0)
-            
-            if rockSprites[i].x > 410 then
-                resetRockPosition(rockSprites[i])
+            local rock = rockSprites[i]
+
+            if rock.active then
+                rock:moveBy(interpolatedRockVelocity, 0)
+            end
+        end
+
+        for i = 1, maxRocks do
+            local rock = rockSprites[i]
+
+            if rock.active and rock.x - rock.imageWidth / 2 > 400 then
+                rock.active = false
+                rock:setVisible(false)
+            end
+        end
+
+        for i = 1, maxRocks do
+            local rock = rockSprites[i]
+
+            if rock.active == false then
+                resetRockPosition(rock)
             end
         end
 
