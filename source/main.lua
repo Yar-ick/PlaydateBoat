@@ -4,10 +4,81 @@ import "CoreLibs/crank"
 import "CoreLibs/animation"
 import "CoreLibs/object"
 import "CoreLibs/sprites"
+import "Collectable"
+import "CoinCollectable"
+import "ShieldCollectable"
+import "ShrinkCollectable"
+import "SpeedReductionCollectable"
+import "InteractiveSpawn"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
-local gfx <const> = playdate.graphics
+local pdg <const> = playdate.graphics
+
+function math.clamp(val, lower, upper)
+    return math.max(lower, math.min(upper, val))
+end
+
+function math.normalizeAngle(angle)
+    return angle % 360
+end
+
+-- Gameplay tuning
+local INITIAL_WORLD_VELOCITY <const> = 1
+local MAX_WORLD_VELOCITY <const> = 8
+local WORLD_VELOCITY_GROWTH_MULTIPLIER <const> = 1.18
+local VELOCITY_INCREASE_INTERVAL_MS <const> = 5000
+local MIN_WORLD_VELOCITY <const> = 0.4
+
+local MAX_ROCKS <const> = 10
+local INTERACTIVE_SPAWN_PADDING <const> = 4
+local INTERACTIVE_SPAWN_ATTEMPTS <const> = 200
+local ROCK_SPAWN_MINIMUM_X <const> = -600
+local COLLECTABLE_SPAWN_MINIMUM_X <const> = -160
+local WORLD_SPAWN_MAXIMUM_Y <const> = 240
+local WORLD_SPAWN_MINIMUM_Y <const> = 50
+
+-- Each inactive collectable waits for its interval and then rolls its spawn chance.
+local COLLECTABLE_SPAWN_CONFIG <const> = {
+    coin = {
+        spawnChancePercent = 60,
+        minimumIntervalMs = 3000,
+        maximumIntervalMs = 8000
+    },
+    shield = {
+        spawnChancePercent = 80,
+        minimumIntervalMs = 3000,
+        maximumIntervalMs = 8000
+    },
+    shrink = {
+        spawnChancePercent = 20,
+        minimumIntervalMs = 10000,
+        maximumIntervalMs = 18000
+    },
+    speedReduction = {
+        spawnChancePercent = 20,
+        minimumIntervalMs = 12000,
+        maximumIntervalMs = 20000
+    }
+}
+
+-- Level 3 is the third and final purchased upgrade (levels start at 0).
+local SHIELD_HITS_BY_LEVEL <const> = { 1, 2, 3, 5 }
+local SHRINK_DURATION_MS_BY_LEVEL <const> = { 5000, 7000, 10000, 15000 }
+local SPEED_REDUCTION_BY_LEVEL <const> = { 0.50, 0.75, 1.00, 1.50 }
+local ABILITY_UPGRADE_COSTS <const> = {
+    shield = { 5, 15, 30 },
+    shrink = { 5, 15, 30 },
+    speedReduction = { 5, 15, 30 }
+}
+local MAX_ABILITY_UPGRADE_LEVEL <const> = 3
+local SHRUNK_PLAYER_SCALE <const> = 0.5
+local PLAYER_SCALE_INTERPOLATION_SPEED <const> = 0.12
+
+local SAVE_FILE_NAME <const> = "boat-save"
+
+local secondsSinceEpoch = pd.getSecondsSinceEpoch()
+math.randomseed(secondsSinceEpoch)
 
 local GameState = {
     ALIVE = 1,
@@ -16,13 +87,79 @@ local GameState = {
 
 local BoatGameState = GameState.ALIVE
 
-local playerImagetable = gfx.imagetable.new("images/Boat")
+local playerImagetable = pdg.imagetable.new("images/Boat")
 local playerImagetableSize = playerImagetable:getLength()
-local explosionImagetable = gfx.imagetable.new("images/Explosion")
+local explosionImagetable = pdg.imagetable.new("images/Explosion")
+local rockExplosionImagetable = pdg.imagetable.new("images/RockExplosion")
+local speedModeImagetable = pdg.imagetable.new("images/SpeedModes")
+local coinImagetable = pdg.imagetable.new("images/Coin")
+local shieldImage = pdg.image.new("images/Shield")
+local shrinkImage = pdg.image.new("images/Srink")
+local speedReductionImage = pdg.image.new("images/SpeedReduction")
+local CRASH_MESSAGE_TEXT <const> = "*You crashed!*\n*Press A to restart*"
+local CRASH_MESSAGE_PADDING <const> = 8
+local crashMessageWidth, crashMessageHeight = pdg.getTextSize(CRASH_MESSAGE_TEXT)
 local explosionX, explosionY = 0, 0
 local explosionAnimation = nil
 local explosionFrameDelay = 100
 local explosionImageWidth, explosionImageHeight = explosionImagetable:getImage(1):getSize()
+local rockExplosionImageWidth, rockExplosionImageHeight = rockExplosionImagetable:getImage(1):getSize()
+local rockExplosions = {}
+
+local savedProgress = pd.datastore.read(SAVE_FILE_NAME)
+if type(savedProgress) ~= "table" then
+    savedProgress = {}
+end
+
+local savedUpgrades = savedProgress.upgrades
+if type(savedUpgrades) ~= "table" then
+    savedUpgrades = {}
+end
+
+local playerCoins = math.max(0, math.floor(tonumber(savedProgress.coins) or 0))
+local shieldUpgradeLevel = math.clamp(math.floor(tonumber(savedUpgrades.shield) or 0), 0, MAX_ABILITY_UPGRADE_LEVEL)
+local shrinkUpgradeLevel = math.clamp(math.floor(tonumber(savedUpgrades.shrink) or 0), 0, MAX_ABILITY_UPGRADE_LEVEL)
+local speedReductionUpgradeLevel =
+    math.clamp(math.floor(tonumber(savedUpgrades.speedReduction) or 0), 0, MAX_ABILITY_UPGRADE_LEVEL)
+
+local progressNeedsSave = false
+local saveFailureWasLogged = false
+
+local function markProgressChanged()
+    progressNeedsSave = true
+end
+
+local function saveProgress()
+    if progressNeedsSave == false then
+        return true
+    end
+
+    local progress = {
+        coins = playerCoins,
+        upgrades = {
+            shield = shieldUpgradeLevel,
+            shrink = shrinkUpgradeLevel,
+            speedReduction = speedReductionUpgradeLevel
+        }
+    }
+
+    -- A read-only Simulator SDK folder must not be able to terminate gameplay.
+    -- Keep the data dirty so lifecycle callbacks can retry after permissions change.
+    local writeCompleted, writeResult = pcall(pd.datastore.write, progress, SAVE_FILE_NAME)
+
+    if writeCompleted and writeResult ~= false then
+        progressNeedsSave = false
+        saveFailureWasLogged = false
+        return true
+    end
+
+    if saveFailureWasLogged == false then
+        print("Unable to save progress: " .. tostring(writeResult))
+        saveFailureWasLogged = true
+    end
+
+    return false
+end
 
 -- Player variables
 local playerScore = 0
@@ -31,6 +168,10 @@ local playerVelocity = 2
 local playerSpeedMode = 1  -- 0: No speed, 1: Normal speed, 2: Fast speed
 local playerStartX, playerStartY = 200, 130
 local playerX, playerY = playerStartX, playerStartY
+local currentPlayerScale = 1
+local targetPlayerScale = 1
+local shrinkRemainingMilliseconds = nil
+local shieldHitsRemaining = 0
 
 local scoreTimer = pd.timer.new(1000, function()
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
@@ -49,33 +190,32 @@ local velocityInterpolationSpeed = 0.25  -- Smoothness of velocity transitions (
 -- Water stream velocity
 local waterStreamVelocity = 3  -- X+ direction velocity from water stream
 
-local waterVelocity = 1
-local interpolatedWaterVelocity = waterVelocity
-local waterImage = gfx.image.new("images/WaterBackground")
+-- Every world object uses these same target and interpolated velocity values.
+local worldVelocity = INITIAL_WORLD_VELOCITY
+local interpolatedWorldVelocity = worldVelocity
+local waterImage = pdg.image.new("images/WaterBackground")
 local waterImageWidth = waterImage:getSize()
 local waterSprites = {}
 
 for i = 1, 2 do
-    local waterSprite = gfx.sprite.new(waterImage)
+    local waterSprite = pdg.sprite.new(waterImage)
     waterSprite:moveTo(-(i - 1) * waterImageWidth, 140)
     waterSprite:setZIndex(-1000)
     waterSprite:add()
     waterSprites[i] = waterSprite
 end
 
-local rockVelocity = 1
-local interpolatedRockVelocity = rockVelocity
 local worldVelocityInterpolationSpeed = 0.08
-local rockImage1 = gfx.image.new("images/Rock1")
-local rockImage2 = gfx.image.new("images/Rock2")
-local rockImage3 = gfx.image.new("images/Rock3")
-local rockImage4 = gfx.image.new("images/Rock4")
-local rockImages = { rockImage1, rockImage2, rockImage3, rockImage4 }
+local rockImage1 = pdg.image.new("images/Rock1")
+local rockImage2 = pdg.image.new("images/Rock2")
+local rockImage3 = pdg.image.new("images/Rock3")
+local rockImage4 = pdg.image.new("images/Rock4")
+local rockImages = { rockImage1, rockImage3, }
 local rockImageWidths = {}
 local rockImageHeights = {}
-local maxRocks = 10
 local rockSprites = {}
-local rockSpawnPadding = 4
+local collectableSprites = {}
+local interactableObjectGroups = { rockSprites, collectableSprites }
 
 for i = 1, #rockImages do
     rockImageWidths[i], rockImageHeights[i] = rockImages[i]:getSize()
@@ -89,48 +229,19 @@ local function setRockImage(rock, imageIndex)
     rock:setCollideRect(0, 0, rock.imageWidth, rock.imageHeight)
 end
 
-local function rocksOverlap(x, y, width, height, otherRock)
-    local horizontalDistance = math.abs(x - otherRock.x)
-    local verticalDistance = math.abs(y - otherRock.y)
-    local minimumHorizontalDistance =
-        (width + otherRock.imageWidth) / 2 + rockSpawnPadding
-    local minimumVerticalDistance =
-        (height + otherRock.imageHeight) / 2 + rockSpawnPadding
-
-    return horizontalDistance < minimumHorizontalDistance
-        and verticalDistance < minimumVerticalDistance
-end
-
 local function findRockSpawnPosition(rock)
-    local minimumX = -600
-    local maximumX = -rock.imageWidth / 2
-    local minimumY = 50 + rock.imageHeight / 2
-    local maximumY = 240 - rock.imageHeight / 2
-
-    for _ = 1, 200 do
-        local x = math.random(minimumX, maximumX)
-        local y = math.random(minimumY, maximumY)
-        local overlaps = false
-
-        for i = 1, maxRocks do
-            local otherRock = rockSprites[i]
-
-            if otherRock ~= nil
-                and otherRock ~= rock
-                and otherRock.active
-                and rocksOverlap(x, y, rock.imageWidth, rock.imageHeight, otherRock)
-            then
-                overlaps = true
-                break
-            end
-        end
-
-        if overlaps == false then
-            return x, y
-        end
-    end
-
-    return nil, nil
+    return InteractiveSpawn.findPosition(
+        interactableObjectGroups,
+        rock,
+        rock.imageWidth,
+        rock.imageHeight,
+        ROCK_SPAWN_MINIMUM_X,
+        -rock.imageWidth / 2,
+        WORLD_SPAWN_MINIMUM_Y + rock.imageHeight / 2,
+        WORLD_SPAWN_MAXIMUM_Y - rock.imageHeight / 2,
+        INTERACTIVE_SPAWN_PADDING,
+        INTERACTIVE_SPAWN_ATTEMPTS
+    )
 end
 
 local function resetRockPosition(rock)
@@ -149,9 +260,10 @@ local function resetRockPosition(rock)
     return true
 end
 
-for i = 1, maxRocks do
-    local rock = gfx.sprite.new()
-    rock.collisionResponse = gfx.sprite.kCollisionTypeOverlap
+for i = 1, MAX_ROCKS do
+    local rock = pdg.sprite.new()
+    rock.objectType = "rock"
+    rock.collisionResponse = pdg.sprite.kCollisionTypeOverlap
     rock:moveTo(-20, -100)
     rock:setVisible(false)
     rock.active = false
@@ -159,25 +271,249 @@ for i = 1, maxRocks do
     rockSprites[i] = rock
 end
 
-for i = 1, maxRocks do
+for i = 1, MAX_ROCKS do
     resetRockPosition(rockSprites[i])
 end
 
-local velocityIncreaseTimer = pd.timer.new(5000, function()
-    rockVelocity = rockVelocity + 0.5
-    waterVelocity = waterVelocity + 0.5
+local velocityIncreaseTimer = pd.timer.new(VELOCITY_INCREASE_INTERVAL_MS, function()
+    worldVelocity = math.min(
+        MAX_WORLD_VELOCITY,
+        worldVelocity * WORLD_VELOCITY_GROWTH_MULTIPLIER
+    )
     playerScoreStep += 10
 end)
 velocityIncreaseTimer.repeats = true
-velocityIncreaseTimer:pause()
+
+if pd.isCrankDocked() then
+    velocityIncreaseTimer:pause()
+end
 
 -- Player image
-local playerSprite = gfx.sprite.new(playerImagetable:getImage(1))
+local playerSprite = pdg.sprite.new(playerImagetable:getImage(1))
 local playerImageWidth, playerImageHeight = playerImagetable:getImage(1):getSize()
-playerSprite.collisionResponse = gfx.sprite.kCollisionTypeOverlap
-playerSprite:setCollideRect(playerImageWidth / 3, playerImageHeight / 2, playerImageWidth / 3, playerImageHeight / 5)
+local playerCollisionX = playerImageWidth / 3
+local playerCollisionY = playerImageHeight / 2
+local playerCollisionWidth = playerImageWidth / 3
+local playerCollisionHeight = playerImageHeight / 5
+playerSprite.collisionResponse = pdg.sprite.kCollisionTypeOverlap
+playerSprite:setCollideRect(playerCollisionX, playerCollisionY, playerCollisionWidth, playerCollisionHeight)
 playerSprite:moveTo(playerStartX, playerStartY)
 playerSprite:add()
+
+local hudMessage = nil
+local hudMessageRemainingMilliseconds = 0
+local collectablesByType = {}
+local collectableSpawnRemainingMilliseconds = {}
+local collectableTypes <const> = { "coin", "shield", "shrink", "speedReduction" }
+
+local function showHudMessage(message)
+    hudMessage = message
+    hudMessageRemainingMilliseconds = 1800
+end
+
+local function onCoinCollected()
+    playerCoins += 1
+    markProgressChanged()
+    saveProgress()
+end
+
+local function onShieldCollected()
+    shieldHitsRemaining += SHIELD_HITS_BY_LEVEL[shieldUpgradeLevel + 1]
+end
+
+local function onShrinkCollected()
+    targetPlayerScale = SHRUNK_PLAYER_SCALE
+    shrinkRemainingMilliseconds = SHRINK_DURATION_MS_BY_LEVEL[shrinkUpgradeLevel + 1]
+end
+
+local function onSpeedReductionCollected()
+    local reduction = SPEED_REDUCTION_BY_LEVEL[speedReductionUpgradeLevel + 1]
+    worldVelocity = math.max(MIN_WORLD_VELOCITY, worldVelocity - reduction)
+end
+
+collectablesByType.coin = CoinCollectable(coinImagetable, onCoinCollected)
+collectablesByType.shield = ShieldCollectable(shieldImage, onShieldCollected)
+collectablesByType.shrink = ShrinkCollectable(shrinkImage, onShrinkCollected)
+collectablesByType.speedReduction =
+    SpeedReductionCollectable(speedReductionImage, onSpeedReductionCollected)
+
+for i = 1, #collectableTypes do
+    local collectableType = collectableTypes[i]
+    local collectable = collectablesByType[collectableType]
+    collectableSprites[#collectableSprites + 1] = collectable
+
+    local config = COLLECTABLE_SPAWN_CONFIG[collectableType]
+    collectableSpawnRemainingMilliseconds[collectableType] =
+        math.random(config.minimumIntervalMs, config.maximumIntervalMs)
+end
+
+local function resetCollectableSpawnCountdown(collectableType)
+    local config = COLLECTABLE_SPAWN_CONFIG[collectableType]
+    collectableSpawnRemainingMilliseconds[collectableType] =
+        math.random(config.minimumIntervalMs, config.maximumIntervalMs)
+end
+
+local function spawnCollectable(collectable)
+    local x, y = InteractiveSpawn.findPosition(
+        interactableObjectGroups,
+        collectable,
+        collectable.imageWidth,
+        collectable.imageHeight,
+        COLLECTABLE_SPAWN_MINIMUM_X,
+        -collectable.imageWidth / 2,
+        WORLD_SPAWN_MINIMUM_Y + collectable.imageHeight / 2,
+        WORLD_SPAWN_MAXIMUM_Y - collectable.imageHeight / 2,
+        INTERACTIVE_SPAWN_PADDING,
+        INTERACTIVE_SPAWN_ATTEMPTS
+    )
+
+    if x == nil then
+        return false
+    end
+
+    collectable:spawnAt(x, y)
+    return true
+end
+
+local function updateCollectables(elapsedMilliseconds)
+    for i = 1, #collectableTypes do
+        local collectableType = collectableTypes[i]
+        local collectable = collectablesByType[collectableType]
+
+        if collectable.active then
+            if collectable.isCollecting == false then
+                collectable:moveBy(interpolatedWorldVelocity, 0)
+
+                if collectable.x - collectable.imageWidth / 2 > 400 then
+                    collectable:despawn()
+                end
+            end
+        else
+            local remaining =
+                collectableSpawnRemainingMilliseconds[collectableType] - elapsedMilliseconds
+            collectableSpawnRemainingMilliseconds[collectableType] = remaining
+
+            if remaining <= 0 then
+                local config = COLLECTABLE_SPAWN_CONFIG[collectableType]
+                resetCollectableSpawnCountdown(collectableType)
+
+                if math.random(100) <= config.spawnChancePercent then
+                    spawnCollectable(collectable)
+                end
+            end
+        end
+    end
+end
+
+local function resetCollectables()
+    for i = 1, #collectableTypes do
+        local collectableType = collectableTypes[i]
+        collectablesByType[collectableType]:despawn()
+        resetCollectableSpawnCountdown(collectableType)
+    end
+end
+
+local function updatePlayerScale(elapsedMilliseconds)
+    if shrinkRemainingMilliseconds ~= nil then
+        shrinkRemainingMilliseconds -= elapsedMilliseconds
+
+        if shrinkRemainingMilliseconds <= 0 then
+            shrinkRemainingMilliseconds = nil
+            targetPlayerScale = 1
+        end
+    end
+
+    local scaleDifference = targetPlayerScale - currentPlayerScale
+
+    if math.abs(scaleDifference) < 0.005 then
+        currentPlayerScale = targetPlayerScale
+    else
+        currentPlayerScale += scaleDifference * PLAYER_SCALE_INTERPOLATION_SPEED
+    end
+
+    playerSprite:setScale(currentPlayerScale)
+    playerSprite:setCollideRect(
+        playerCollisionX * currentPlayerScale,
+        playerCollisionY * currentPlayerScale,
+        playerCollisionWidth * currentPlayerScale,
+        playerCollisionHeight * currentPlayerScale
+    )
+end
+
+local upgradeMenuItems = {}
+
+local function getAbilityUpgradeLevel(abilityType)
+    if abilityType == "shield" then
+        return shieldUpgradeLevel
+    elseif abilityType == "shrink" then
+        return shrinkUpgradeLevel
+    end
+
+    return speedReductionUpgradeLevel
+end
+
+local function setAbilityUpgradeLevel(abilityType, level)
+    if abilityType == "shield" then
+        shieldUpgradeLevel = level
+    elseif abilityType == "shrink" then
+        shrinkUpgradeLevel = level
+    else
+        speedReductionUpgradeLevel = level
+    end
+end
+
+local function refreshUpgradeMenuTitles()
+    local labels = {
+        shield = "Shield",
+        shrink = "Shrink",
+        speedReduction = "Slowdown"
+    }
+
+    for abilityType, menuItem in pairs(upgradeMenuItems) do
+        local level = getAbilityUpgradeLevel(abilityType)
+
+        if level >= MAX_ABILITY_UPGRADE_LEVEL then
+            menuItem:setTitle(labels[abilityType] .. " L3 MAX")
+        else
+            local cost = ABILITY_UPGRADE_COSTS[abilityType][level + 1]
+            menuItem:setTitle(labels[abilityType] .. " L" .. level .. " (" .. cost .. "c)")
+        end
+    end
+end
+
+local function purchaseAbilityUpgrade(abilityType)
+    local level = getAbilityUpgradeLevel(abilityType)
+
+    if level >= MAX_ABILITY_UPGRADE_LEVEL then
+        showHudMessage("Ability is already max level")
+        return
+    end
+
+    local cost = ABILITY_UPGRADE_COSTS[abilityType][level + 1]
+    if playerCoins < cost then
+        showHudMessage("Need " .. cost .. " coins")
+        return
+    end
+
+    playerCoins -= cost
+    setAbilityUpgradeLevel(abilityType, level + 1)
+    markProgressChanged()
+    saveProgress()
+    refreshUpgradeMenuTitles()
+    showHudMessage("Ability upgraded to level " .. (level + 1))
+end
+
+local systemMenu = pd.getSystemMenu()
+upgradeMenuItems.shield = systemMenu:addMenuItem("Shield", function()
+    purchaseAbilityUpgrade("shield")
+end)
+upgradeMenuItems.shrink = systemMenu:addMenuItem("Shrink", function()
+    purchaseAbilityUpgrade("shrink")
+end)
+upgradeMenuItems.speedReduction = systemMenu:addMenuItem("Slowdown", function()
+    purchaseAbilityUpgrade("speedReduction")
+end)
+refreshUpgradeMenuTitles()
 
 local function resetExplosion()
     explosionAnimation = nil
@@ -186,7 +522,7 @@ end
 local function startExplosion(x, y)
     explosionX = x
     explosionY = y
-    explosionAnimation = gfx.animation.loop.new(explosionFrameDelay, explosionImagetable, false)
+    explosionAnimation = pdg.animation.loop.new(explosionFrameDelay, explosionImagetable, false)
 end
 
 local function updateExplosion()
@@ -300,7 +636,7 @@ local function updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle)
             if lifeProgress >= 1 then
                 line.active = false
             else
-                line.x += line.dx * line.speed + interpolatedWaterVelocity
+                line.x += line.dx * line.speed + interpolatedWorldVelocity
                 line.y += line.dy * line.speed
                 line.age += 1
             end
@@ -308,8 +644,8 @@ local function updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle)
     end
 
     local emitterOffset = playerParticleEmitterOffsets[playerSpriteIndexFromAngle]
-    local engineX = playerX + emitterOffset.x
-    local engineY = playerY + emitterOffset.y
+    local engineX = playerX + emitterOffset.x * currentPlayerScale
+    local engineY = playerY + emitterOffset.y * currentPlayerScale
     local wakeAngle = math.normalizeAngle(currentVelocityAngle + 180)
 
     if playerSpeedMode == 2 then
@@ -326,10 +662,10 @@ local function updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle)
 end
 
 local function drawWakeLines()
-    local previousLineWidth = gfx.getLineWidth()
-    local previousColor = gfx.getColor()
+    local previousLineWidth = pdg.getLineWidth()
+    local previousColor = pdg.getColor()
 
-    gfx.setColor(gfx.kColorBlack)
+    pdg.setColor(pdg.kColorBlack)
 
     for i = 1, wakeLinePoolSize do
         local line = wakeLinePool[i]
@@ -343,21 +679,198 @@ local function drawWakeLines()
                 lineWidth = 1
             end
 
-            gfx.setLineWidth(lineWidth)
-            gfx.drawLine(line.x, line.y, line.x + line.dx * lineLength, line.y + line.dy * lineLength)
+            pdg.setLineWidth(lineWidth)
+            pdg.drawLine(line.x, line.y, line.x + line.dx * lineLength, line.y + line.dy * lineLength)
         end
     end
 
-    gfx.setLineWidth(previousLineWidth)
-    gfx.setColor(previousColor)
+    pdg.setLineWidth(previousLineWidth)
+    pdg.setColor(previousColor)
 end
 
-function math.clamp(val, lower, upper)
-    return math.max(lower, math.min(upper, val))
+local function startRockExplosion(x, y)
+    rockExplosions[#rockExplosions + 1] = {
+        x = x,
+        y = y,
+        animation = pdg.animation.loop.new(50, rockExplosionImagetable, false)
+    }
 end
 
-function math.normalizeAngle(angle)
-    return angle % 360
+local function updateRockExplosions()
+    for i = #rockExplosions, 1, -1 do
+        local rockExplosion = rockExplosions[i]
+
+        if rockExplosion.animation:isValid() then
+            rockExplosion.animation:draw(
+                rockExplosion.x - rockExplosionImageWidth / 2,
+                rockExplosion.y - rockExplosionImageHeight / 2
+            )
+        else
+            table.remove(rockExplosions, i)
+        end
+    end
+end
+
+local function drawHud()
+    local speedModeImage = speedModeImagetable:getImage(playerSpeedMode)
+    speedModeImage:draw(5, 5)
+
+    if shieldHitsRemaining > 0 then
+        shieldImage:draw(27, 0)
+        pdg.drawText("x" .. shieldHitsRemaining, 60, 7)
+    end
+
+    local scoreText = "Score: " .. playerScore
+    local scoreTextWidth = pdg.getTextSize(scoreText)
+    local scoreX = 395 - scoreTextWidth
+    pdg.drawText(scoreText, scoreX, 7)
+
+    local coinText = tostring(playerCoins)
+    local coinTextWidth = pdg.getTextSize(coinText)
+    local coinImage = coinImagetable:getImage(1)
+    local coinImageWidth = coinImage:getSize()
+    local coinX = scoreX - coinImageWidth - coinTextWidth - 10
+    coinImage:draw(coinX, 5)
+    pdg.drawText(coinText, coinX + coinImageWidth + 2, 7)
+
+    if hudMessage ~= nil then
+        pdg.drawText(hudMessage, 10, 216)
+    end
+end
+
+local function drawCrashMessage()
+    local textX = 200
+    local textY = math.floor((240 - crashMessageHeight) / 2)
+    local backgroundX = math.floor(textX - crashMessageWidth / 2) - CRASH_MESSAGE_PADDING
+    local backgroundY = textY - CRASH_MESSAGE_PADDING
+    local backgroundWidth = crashMessageWidth + CRASH_MESSAGE_PADDING * 2
+    local backgroundHeight = crashMessageHeight + CRASH_MESSAGE_PADDING * 2
+    local previousColor = pdg.getColor()
+
+    pdg.setColor(pdg.kColorWhite)
+    pdg.fillRect(backgroundX, backgroundY, backgroundWidth, backgroundHeight)
+    pdg.setColor(pdg.kColorBlack)
+    pdg.drawRect(backgroundX, backgroundY, backgroundWidth, backgroundHeight)
+    pdg.drawTextAligned(
+        CRASH_MESSAGE_TEXT,
+        textX,
+        textY,
+        kTextAlignment.center
+    )
+
+    pdg.setColor(previousColor)
+end
+
+local function destroyRock(rock)
+    startRockExplosion(rock.x, rock.y)
+    rock.active = false
+    rock:setVisible(false)
+end
+
+local function handlePlayerCollisions(collisions, length)
+    -- Temporarily expose the complete scaled boat bounds for pickup checks. Rock
+    -- collisions continue to use the smaller gameplay hitbox restored below.
+    playerSprite:setCollideRect(
+        0,
+        0,
+        playerImageWidth * currentPlayerScale,
+        playerImageHeight * currentPlayerScale
+    )
+
+    for i = 1, #collectableSprites do
+        local collectable = collectableSprites[i]
+
+        if collectable.active
+            and collectable.isCollecting == false
+            and playerSprite:alphaCollision(collectable)
+        then
+            collectable:collect()
+        end
+    end
+
+    playerSprite:setCollideRect(
+        playerCollisionX * currentPlayerScale,
+        playerCollisionY * currentPlayerScale,
+        playerCollisionWidth * currentPlayerScale,
+        playerCollisionHeight * currentPlayerScale
+    )
+
+    for i = 1, length do
+        local other = collisions[i].other
+
+        if other ~= nil
+            and other.objectType == "rock"
+            and other.active
+            and playerSprite:alphaCollision(other)
+        then
+            if shieldHitsRemaining > 0 then
+                shieldHitsRemaining -= 1
+                destroyRock(other)
+            else
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function resetGame()
+    BoatGameState = GameState.ALIVE
+    xVelocity = 0
+    yVelocity = 0
+    targetXVelocity = 0
+    targetYVelocity = 0
+    playerX = playerStartX
+    playerY = playerStartY
+    worldVelocity = INITIAL_WORLD_VELOCITY
+    interpolatedWorldVelocity = worldVelocity
+    playerSpeedMode = 1
+    playerScore = 0
+    playerScoreStep = 10
+    shieldHitsRemaining = 0
+    shrinkRemainingMilliseconds = nil
+    currentPlayerScale = 1
+    targetPlayerScale = 1
+    hudMessage = nil
+    hudMessageRemainingMilliseconds = 0
+
+    scoreTimer:reset()
+    velocityIncreaseTimer:reset()
+    if pd.isCrankDocked() then
+        velocityIncreaseTimer:pause()
+    else
+        velocityIncreaseTimer:start()
+    end
+
+    playerSprite:setScale(1)
+    playerSprite:setCollideRect(
+        playerCollisionX,
+        playerCollisionY,
+        playerCollisionWidth,
+        playerCollisionHeight
+    )
+    playerSprite:moveTo(playerX, playerY)
+    waterSprites[1]:moveTo(0, 140)
+    waterSprites[2]:moveTo(-waterImageWidth, 140)
+    clearWakeLines()
+    resetCollectables()
+
+    for i = 1, MAX_ROCKS do
+        rockSprites[i].active = false
+        rockSprites[i]:setVisible(false)
+    end
+
+    for i = 1, MAX_ROCKS do
+        resetRockPosition(rockSprites[i])
+    end
+
+    resetExplosion()
+    rockExplosions = {}
+end
+
+function playdate.crankDocked()
+    velocityIncreaseTimer:pause()
 end
 
 function playdate.crankUndocked()
@@ -366,180 +879,163 @@ function playdate.crankUndocked()
     end
 end
 
+function playdate.gameWillPause()
+    saveProgress()
+end
+
+function playdate.gameWillTerminate()
+    saveProgress()
+end
+
+function playdate.deviceWillSleep()
+    saveProgress()
+end
+
+local lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
+
 function playdate.update()
+    local currentTimeMilliseconds = pd.getCurrentTimeMilliseconds()
+    local elapsedMilliseconds = currentTimeMilliseconds - lastUpdateTimeMilliseconds
+    lastUpdateTimeMilliseconds = currentTimeMilliseconds
+
+    if elapsedMilliseconds < 0 then
+        elapsedMilliseconds = 0
+    end
+
     pd.timer.updateTimers()
 
-    -- Draw crank indicator if crank is docked
+    if hudMessageRemainingMilliseconds > 0 then
+        hudMessageRemainingMilliseconds -= elapsedMilliseconds
+
+        if hudMessageRemainingMilliseconds <= 0 then
+            hudMessage = nil
+        end
+    end
+
+    -- Keep gameplay paused until the player uses the crank.
     if pd.isCrankDocked() then
-        gfx.sprite.update()
-        gfx.drawText("Score: " .. playerScore, 300, 10)
+        pdg.sprite.update()
+        updateRockExplosions()
+        drawHud()
         pd.ui.crankIndicator:draw()
         velocityIncreaseTimer:pause()
         return
     end
 
     if BoatGameState == GameState.CRASHED then
-        gfx.sprite.update()
+        pdg.sprite.update()
+        updateRockExplosions()
         updateExplosion()
-        gfx.drawText("Score: " .. playerScore, 300, 10)
-        gfx.drawText("You crashed! Press A to restart.", 10, 10)
+        drawHud()
+        drawCrashMessage()
 
         if pd.buttonJustReleased(pd.kButtonA) then
-            -- Reset game state
-            BoatGameState = GameState.ALIVE
-
-            -- Reset all relevant variables to their initial state
-            xVelocity = 0
-            yVelocity = 0
-            playerX = playerStartX
-            playerY = playerStartY
-            rockVelocity = 1
-            waterVelocity = 1
-            interpolatedRockVelocity = rockVelocity
-            interpolatedWaterVelocity = waterVelocity
-            playerSpeedMode = 1
-            playerScore = 0
-            playerScoreStep = 10
-            scoreTimer:reset(1000)
-            velocityIncreaseTimer:reset(5000)
-            velocityIncreaseTimer:start()
-            playerSprite:setScale(1)
-            playerSprite:moveTo(playerX, playerY)
-            waterSprites[1]:moveTo(0, 140)
-            waterSprites[2]:moveTo(-waterImageWidth, 140)
-            clearWakeLines()
-
-            for i = 1, maxRocks do
-                rockSprites[i].active = false
-                rockSprites[i]:setVisible(false)
-            end
-
-            for i = 1, maxRocks do
-                resetRockPosition(rockSprites[i])
-            end
-
-            resetExplosion()
-        end
-        elseif BoatGameState == GameState.ALIVE then
-        interpolatedWaterVelocity +=
-            (waterVelocity - interpolatedWaterVelocity) * worldVelocityInterpolationSpeed
-        interpolatedRockVelocity +=
-            (rockVelocity - interpolatedRockVelocity) * worldVelocityInterpolationSpeed
-
-        for i = 1, 2 do
-            waterSprites[i]:moveBy(interpolatedWaterVelocity, 0)
+            resetGame()
         end
 
-        for i = 1, 2 do
-            local waterSprite = waterSprites[i]
-            if waterSprite.x - waterImageWidth / 2 >= 400 then
-                local otherWaterSprite = waterSprites[(i % 2) + 1]
-                waterSprite:moveTo(otherWaterSprite.x - waterImageWidth, 140)
-            end
+        return
+    end
+
+    interpolatedWorldVelocity +=
+        (worldVelocity - interpolatedWorldVelocity) * worldVelocityInterpolationSpeed
+
+    for i = 1, 2 do
+        waterSprites[i]:moveBy(interpolatedWorldVelocity, 0)
+    end
+
+    for i = 1, 2 do
+        local waterSprite = waterSprites[i]
+        if waterSprite.x - waterImageWidth / 2 >= 400 then
+            local otherWaterSprite = waterSprites[(i % 2) + 1]
+            waterSprite:moveTo(otherWaterSprite.x - waterImageWidth, 140)
         end
+    end
 
-        for i = 1, maxRocks do
-            local rock = rockSprites[i]
+    for i = 1, MAX_ROCKS do
+        local rock = rockSprites[i]
 
-            if rock.active then
-                rock:moveBy(interpolatedRockVelocity, 0)
-            end
-        end
+        if rock.active then
+            rock:moveBy(interpolatedWorldVelocity, 0)
 
-        for i = 1, maxRocks do
-            local rock = rockSprites[i]
-
-            if rock.active and rock.x - rock.imageWidth / 2 > 400 then
+            if rock.x - rock.imageWidth / 2 > 400 then
                 rock.active = false
                 rock:setVisible(false)
             end
         end
+    end
 
-        for i = 1, maxRocks do
-            local rock = rockSprites[i]
+    updateCollectables(elapsedMilliseconds)
 
-            if rock.active == false then
-                resetRockPosition(rock)
-            end
-        end
+    -- Recycle rocks after collectables move/spawn so the shared overlap check sees
+    -- every interactable object at its final position for this frame.
+    for i = 1, MAX_ROCKS do
+        local rock = rockSprites[i]
 
-        -- Update player position before moving the emitter so particles emit from the boat engine end
-        if pd.buttonJustPressed(pd.kButtonB) and playerSpeedMode == 1 then
-            playerSpeedMode = 2
-        elseif pd.buttonJustReleased(pd.kButtonB) then
-            playerSpeedMode = 1
-        elseif pd.buttonJustReleased(pd.kButtonA) then
-            -- TODO Think about interesting ability on this button
-        end
-
-        -- Calculate velocity from crank angle 
-        local crankPosition = pd.getCrankPosition()
-        local crankPositionForVelocity = crankPosition - 90
-
-        local playerVelocityMultiplier = 1
-
-        if playerSpeedMode == 1 then
-            playerVelocityMultiplier = 1
-        elseif playerSpeedMode == 2 then
-            playerVelocityMultiplier = 2.25
-        end
-
-        -- Calculate target velocities based on crank position
-        targetXVelocity = math.cos(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
-        targetYVelocity = math.sin(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
-
-        -- Interpolate velocities toward target for smooth inertia
-        xVelocity = xVelocity + (targetXVelocity - xVelocity) * velocityInterpolationSpeed
-        yVelocity = yVelocity + (targetYVelocity - yVelocity) * velocityInterpolationSpeed
-
-        -- Calculate sprite index from interpolated velocity direction
-        local currentVelocityAngle = math.deg(math.atan2(yVelocity, xVelocity)) + 90
-        currentVelocityAngle = math.normalizeAngle(currentVelocityAngle)
-
-        local playerSpriteIndexFromAngle = math.clamp(math.ceil(currentVelocityAngle / 7.5), 1, playerImagetableSize)
-        playerSprite:setImage(playerImagetable:getImage(playerSpriteIndexFromAngle))
-
-        -- Update position with velocity and handle collisions
-        playerX = playerX + xVelocity + waterStreamVelocity
-        playerY = playerY + yVelocity
-
-        local actualX, actualY, collisions, length = playerSprite:moveWithCollisions(playerX, playerY)
-
-        -- Update tracked position to actual position after collision
-        playerX = actualX
-        playerY = actualY
-        playerX = math.clamp(playerX, playerImageWidth / 2, 400 - playerImageWidth / 3)
-        playerY = math.clamp(playerY, playerImageHeight / 2, 240 - playerImageHeight / 3)
-        playerSprite:moveTo(playerX, playerY)
-
-        updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle)
-        gfx.sprite.update()
-        drawWakeLines()
-        gfx.drawText("Score: " .. playerScore, 300, 10)
-        gfx.drawText("Boat speed mode: " .. playerSpeedMode, 10, 10)
-
-        -- Pixel-perfect collision check: iterate collisions and use sprite:alphaCollision
-        if length > 0 then
-            local didAlphaCollision = false
-
-            for i = 1, length do
-                local other = collisions[i].other
-
-                if other then
-                    if playerSprite:alphaCollision(other) then
-                        didAlphaCollision = true
-                        break
-                    end
-                end
-            end
-
-            if didAlphaCollision then
-                BoatGameState = GameState.CRASHED
-                velocityIncreaseTimer:pause()
-                playerSprite:setScale(0)
-                clearWakeLines()
-                startExplosion(playerX, playerY)
-            end
+        if rock.active == false then
+            resetRockPosition(rock)
         end
     end
+
+    updatePlayerScale(elapsedMilliseconds)
+
+    if pd.buttonJustPressed(pd.kButtonB) and playerSpeedMode == 1 then
+        playerSpeedMode = 2
+    elseif pd.buttonJustReleased(pd.kButtonB) then
+        playerSpeedMode = 1
+    end
+
+    local crankPositionForVelocity = pd.getCrankPosition() - 90
+    local playerVelocityMultiplier = 1
+
+    if playerSpeedMode == 2 then
+        playerVelocityMultiplier = 2.25
+    end
+
+    targetXVelocity =
+        math.cos(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
+    targetYVelocity =
+        math.sin(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
+
+    xVelocity += (targetXVelocity - xVelocity) * velocityInterpolationSpeed
+    yVelocity += (targetYVelocity - yVelocity) * velocityInterpolationSpeed
+
+    local currentVelocityAngle = math.normalizeAngle(math.deg(math.atan2(yVelocity, xVelocity)) + 90)
+    local playerSpriteIndexFromAngle =
+        math.clamp(math.ceil(currentVelocityAngle / 7.5), 1, playerImagetableSize)
+    playerSprite:setImage(playerImagetable:getImage(playerSpriteIndexFromAngle))
+
+    playerX += xVelocity + waterStreamVelocity
+    playerY += yVelocity
+
+    local actualX, actualY, collisions, length = playerSprite:moveWithCollisions(playerX, playerY)
+    playerX = actualX
+    playerY = actualY
+
+    local scaledPlayerWidth = playerImageWidth * currentPlayerScale
+    local scaledPlayerHeight = playerImageHeight * currentPlayerScale
+    playerX = math.clamp(playerX, scaledPlayerWidth / 2, 400 - scaledPlayerWidth / 3)
+    playerY = math.clamp(playerY, scaledPlayerHeight / 2, 240 - scaledPlayerHeight / 3)
+    playerSprite:moveTo(playerX, playerY)
+
+    local didCrash = handlePlayerCollisions(collisions, length)
+
+    if didCrash then
+        BoatGameState = GameState.CRASHED
+        velocityIncreaseTimer:pause()
+        playerSprite:setScale(0)
+        clearWakeLines()
+        startExplosion(playerX, playerY)
+    else
+        updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle)
+    end
+
+    pdg.sprite.update()
+    drawWakeLines()
+    updateRockExplosions()
+
+    if didCrash then
+        updateExplosion()
+    end
+
+    drawHud()
 end
