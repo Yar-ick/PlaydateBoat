@@ -38,8 +38,11 @@ local DASH_STOP_VELOCITY <const> = 0.1
 local DASH_WAKE_MINIMUM_VELOCITY <const> = 0.5
 local DASH_UI_DRAIN_DURATION_MS <const> = 180
 
-local ENGINE_NORMAL_RATE <const> = 0.90
-local ENGINE_FAST_RATE <const> = 1.30
+local ENGINE_MIN_WORLD_RATE <const> = 0.88
+local ENGINE_MAX_WORLD_RATE <const> = 1.18
+local ENGINE_FAST_RATE_MULTIPLIER <const> = 1.12
+local ENGINE_SHRINK_RATE_MULTIPLIER <const> = 1.22
+local ENGINE_MAX_RATE <const> = 1.65
 local ENGINE_NORMAL_VOLUME <const> = 0.24
 local ENGINE_FAST_VOLUME <const> = 0.36
 local ENGINE_SOUND_INTERPOLATION_SPEED <const> = 0.12
@@ -70,7 +73,7 @@ local COLLECTABLE_SPAWN_CONFIG <const> = {
         maximumIntervalMs = 8000
     },
     shrink = {
-        spawnChancePercent = 20,
+        spawnChancePercent = 100,
         minimumIntervalMs = 10000,
         maximumIntervalMs = 18000
     },
@@ -125,7 +128,7 @@ local dashSoundPlayer = pds.sampleplayer.new("sounds/Dash")
 local shrinkSoundPlayer = pds.sampleplayer.new("sounds/Shrink")
 local boatExplosionSoundPlayer = pds.sampleplayer.new("sounds/BoatExplosion")
 local boatEngineSoundPlayer = pds.sampleplayer.new("sounds/BoatEngine")
-local boatEngineSoundRate = ENGINE_NORMAL_RATE
+local boatEngineSoundRate = ENGINE_MIN_WORLD_RATE
 local boatEngineSoundVolume = ENGINE_NORMAL_VOLUME
 local rockExplosionSoundPlayers = {}
 local rockExplosionSoundPlayerCursor = 1
@@ -164,8 +167,26 @@ local function stopBoatEngineSound()
     end
 end
 
-local function updateBoatEngineSound(isFast)
-    local targetRate = isFast and ENGINE_FAST_RATE or ENGINE_NORMAL_RATE
+local function updateBoatEngineSound(isFast, isShrunk, currentWorldVelocity)
+    local velocityRange = MAX_WORLD_VELOCITY - INITIAL_WORLD_VELOCITY
+    local velocityProgress = 0
+    if velocityRange > 0 then
+        velocityProgress = math.clamp(
+            (currentWorldVelocity - INITIAL_WORLD_VELOCITY) / velocityRange,
+            0,
+            1
+        )
+    end
+
+    local targetRate = ENGINE_MIN_WORLD_RATE
+        + (ENGINE_MAX_WORLD_RATE - ENGINE_MIN_WORLD_RATE) * velocityProgress
+    if isFast then
+        targetRate *= ENGINE_FAST_RATE_MULTIPLIER
+    end
+    if isShrunk then
+        targetRate *= ENGINE_SHRINK_RATE_MULTIPLIER
+    end
+    targetRate = math.min(targetRate, ENGINE_MAX_RATE)
     local targetVolume = isFast and ENGINE_FAST_VOLUME or ENGINE_NORMAL_VOLUME
 
     boatEngineSoundRate +=
@@ -1115,7 +1136,7 @@ local function resetGame()
     dashCooldownDurationMilliseconds = DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
     dashUiProgress = 1
     dashUiIsDraining = false
-    boatEngineSoundRate = ENGINE_NORMAL_RATE
+    boatEngineSoundRate = ENGINE_MIN_WORLD_RATE
     boatEngineSoundVolume = ENGINE_NORMAL_VOLUME
     hudMessage = nil
     hudMessageRemainingMilliseconds = 0
@@ -1305,7 +1326,11 @@ function playdate.update()
 
     local dashSpeed = math.sqrt(dashVelocityX * dashVelocityX + dashVelocityY * dashVelocityY)
     local isDashing = dashSpeed >= DASH_WAKE_MINIMUM_VELOCITY
-    updateBoatEngineSound(playerSpeedMode == 2)
+    updateBoatEngineSound(
+        playerSpeedMode == 2,
+        shrinkRemainingMilliseconds ~= nil,
+        interpolatedWorldVelocity
+    )
     playerX += movementVelocityX + waterStreamVelocity
     playerY += movementVelocityY
 
