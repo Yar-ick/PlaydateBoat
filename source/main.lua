@@ -47,6 +47,11 @@ local ENGINE_NORMAL_VOLUME <const> = 0.24
 local ENGINE_FAST_VOLUME <const> = 0.36
 local ENGINE_SOUND_INTERPOLATION_SPEED <const> = 0.12
 
+local WATER_FLOW_MIN_RATE <const> = 0.75
+local WATER_FLOW_MAX_RATE <const> = 1.35
+local WATER_FLOW_VOLUME <const> = 0.50
+local WATER_FLOW_RATE_INTERPOLATION_SPEED <const> = 0.08
+
 local SPEEDOMETER_MIN_ANGLE <const> = -120
 local SPEEDOMETER_MAX_ANGLE <const> = 120
 local SPEEDOMETER_WORLD_SPEED_WEIGHT <const> = 0.70
@@ -140,6 +145,8 @@ local boatExplosionSoundPlayer = pds.sampleplayer.new("sounds/BoatExplosion")
 local boatEngineSoundPlayer = pds.sampleplayer.new("sounds/BoatEngine")
 local boatEngineSoundRate = ENGINE_MIN_WORLD_RATE
 local boatEngineSoundVolume = ENGINE_NORMAL_VOLUME
+local waterFlowSoundPlayer = pds.sampleplayer.new("sounds/WaterFlow")
+local waterFlowSoundRate = WATER_FLOW_MIN_RATE
 local rockExplosionSoundPlayers = {}
 local rockExplosionSoundPlayerCursor = 1
 
@@ -205,6 +212,46 @@ local function updateBoatEngineSound(isFast, isShrunk, currentWorldVelocity)
         (targetVolume - boatEngineSoundVolume) * ENGINE_SOUND_INTERPOLATION_SPEED
     boatEngineSoundPlayer:setRate(boatEngineSoundRate)
     boatEngineSoundPlayer:setVolume(boatEngineSoundVolume)
+end
+
+local function startWaterFlowSound()
+    if waterFlowSoundPlayer:isPlaying() == false then
+        waterFlowSoundPlayer:setOffset(0)
+        waterFlowSoundPlayer:setRate(waterFlowSoundRate)
+        waterFlowSoundPlayer:setVolume(WATER_FLOW_VOLUME)
+        waterFlowSoundPlayer:play(0)
+    end
+end
+
+local function stopWaterFlowSound()
+    if waterFlowSoundPlayer:isPlaying() then
+        waterFlowSoundPlayer:stop()
+    end
+end
+
+local function updateWaterFlowSound(currentWorldVelocity)
+    local velocityProgress = math.clamp(
+        (currentWorldVelocity - MIN_WORLD_VELOCITY)
+            / (MAX_WORLD_VELOCITY - MIN_WORLD_VELOCITY),
+        0,
+        1
+    )
+    local targetRate = WATER_FLOW_MIN_RATE
+        + (WATER_FLOW_MAX_RATE - WATER_FLOW_MIN_RATE) * velocityProgress
+
+    waterFlowSoundRate +=
+        (targetRate - waterFlowSoundRate) * WATER_FLOW_RATE_INTERPOLATION_SPEED
+    waterFlowSoundPlayer:setRate(waterFlowSoundRate)
+end
+
+local function startGameplayLoopSounds()
+    startBoatEngineSound()
+    startWaterFlowSound()
+end
+
+local function stopGameplayLoopSounds()
+    stopBoatEngineSound()
+    stopWaterFlowSound()
 end
 
 local CRASH_MESSAGE_TEXT <const> = "*You crashed!*\n*Press A to restart*"
@@ -1181,6 +1228,7 @@ local function resetGame()
     speedometerNeedleAngle = SPEEDOMETER_MIN_ANGLE
     boatEngineSoundRate = ENGINE_MIN_WORLD_RATE
     boatEngineSoundVolume = ENGINE_NORMAL_VOLUME
+    waterFlowSoundRate = WATER_FLOW_MIN_RATE
     hudMessage = nil
     hudMessageRemainingMilliseconds = 0
 
@@ -1188,11 +1236,11 @@ local function resetGame()
     velocityIncreaseTimer:reset()
     if pd.isCrankDocked() then
         velocityIncreaseTimer:pause()
-        stopBoatEngineSound()
+        stopGameplayLoopSounds()
     else
         velocityIncreaseTimer:start()
-        stopBoatEngineSound()
-        startBoatEngineSound()
+        stopGameplayLoopSounds()
+        startGameplayLoopSounds()
     end
 
     playerSprite:setScale(1)
@@ -1223,33 +1271,35 @@ end
 
 function playdate.crankDocked()
     velocityIncreaseTimer:pause()
-    stopBoatEngineSound()
+    stopGameplayLoopSounds()
 end
 
 function playdate.crankUndocked()
     if BoatGameState == GameState.ALIVE then
         velocityIncreaseTimer:start()
-        startBoatEngineSound()
+        startGameplayLoopSounds()
     end
 end
 
 function playdate.gameWillPause()
     saveProgress()
-    stopBoatEngineSound()
+    stopGameplayLoopSounds()
 end
 
 function playdate.gameWillResume()
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
-        startBoatEngineSound()
+        startGameplayLoopSounds()
     end
 end
 
 function playdate.gameWillTerminate()
     saveProgress()
+    stopGameplayLoopSounds()
 end
 
 function playdate.deviceWillSleep()
     saveProgress()
+    stopGameplayLoopSounds()
 end
 
 local lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
@@ -1275,7 +1325,7 @@ function playdate.update()
 
     -- Keep gameplay paused until the player uses the crank.
     if pd.isCrankDocked() then
-        stopBoatEngineSound()
+        stopGameplayLoopSounds()
         pdg.sprite.update()
         drawHud()
         pd.ui.crankIndicator:draw()
@@ -1284,7 +1334,7 @@ function playdate.update()
     end
 
     if BoatGameState == GameState.CRASHED then
-        stopBoatEngineSound()
+        stopGameplayLoopSounds()
         pdg.sprite.update()
         updateExplosion()
         drawHud()
@@ -1299,7 +1349,7 @@ function playdate.update()
 
     interpolatedWorldVelocity +=
         (worldVelocity - interpolatedWorldVelocity) * worldVelocityInterpolationSpeed
-    startBoatEngineSound()
+    startGameplayLoopSounds()
 
     for i = 1, 2 do
         waterSprites[i]:moveBy(interpolatedWorldVelocity, 0)
@@ -1375,6 +1425,7 @@ function playdate.update()
         shrinkRemainingMilliseconds ~= nil,
         interpolatedWorldVelocity
     )
+    updateWaterFlowSound(interpolatedWorldVelocity)
     playerX += movementVelocityX + waterStreamVelocity
     playerY += movementVelocityY
 
@@ -1394,7 +1445,7 @@ function playdate.update()
     if didCrash then
         BoatGameState = GameState.CRASHED
         velocityIncreaseTimer:pause()
-        stopBoatEngineSound()
+        stopGameplayLoopSounds()
         playerSprite:setScale(0)
         clearWakeLines()
         startExplosion(playerX, playerY)
