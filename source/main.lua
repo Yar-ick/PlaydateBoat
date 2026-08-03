@@ -47,6 +47,13 @@ local ENGINE_NORMAL_VOLUME <const> = 0.24
 local ENGINE_FAST_VOLUME <const> = 0.36
 local ENGINE_SOUND_INTERPOLATION_SPEED <const> = 0.12
 
+local SPEEDOMETER_MIN_ANGLE <const> = -120
+local SPEEDOMETER_MAX_ANGLE <const> = 120
+local SPEEDOMETER_WORLD_SPEED_WEIGHT <const> = 0.70
+local SPEEDOMETER_FAST_MODE_BOOST <const> = 0.15
+local SPEEDOMETER_DASH_BOOST <const> = 0.30
+local SPEEDOMETER_NEEDLE_INTERPOLATION_SPEED <const> = 0.18
+
 local MAX_ROCKS <const> = 10
 local INTERACTIVE_SPAWN_PADDING <const> = 4
 local INTERACTIVE_SPAWN_ATTEMPTS <const> = 200
@@ -117,7 +124,8 @@ local playerImagetable = pdg.imagetable.new("images/Boat")
 local playerImagetableSize = playerImagetable:getLength()
 local explosionImagetable = pdg.imagetable.new("images/Explosion")
 local rockExplosionImagetable = pdg.imagetable.new("images/RockExplosion")
-local speedModeImagetable = pdg.imagetable.new("images/SpeedModes")
+local speedometerImage = pdg.image.new("images/Speedometer")
+local speedometerNeedleImage = pdg.image.new("images/SpeedometerNeedle")
 local coinImagetable = pdg.imagetable.new("images/Coin")
 local shieldImage = pdg.image.new("images/Shield")
 local shrinkImage = pdg.image.new("images/Srink")
@@ -126,6 +134,8 @@ local dashImage = pdg.image.new("images/Dash")
 local coinPickupSoundPlayer = pds.sampleplayer.new("sounds/CoinPickup")
 local dashSoundPlayer = pds.sampleplayer.new("sounds/Dash")
 local shrinkSoundPlayer = pds.sampleplayer.new("sounds/Shrink")
+local shieldSoundPlayer = pds.sampleplayer.new("sounds/Shield")
+local speedReductionSoundPlayer = pds.sampleplayer.new("sounds/SpeedReduction")
 local boatExplosionSoundPlayer = pds.sampleplayer.new("sounds/BoatExplosion")
 local boatEngineSoundPlayer = pds.sampleplayer.new("sounds/BoatEngine")
 local boatEngineSoundRate = ENGINE_MIN_WORLD_RATE
@@ -285,6 +295,7 @@ local dashCooldownRemainingMilliseconds = 0
 local dashCooldownDurationMilliseconds = DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
 local dashUiProgress = 1
 local dashUiIsDraining = false
+local speedometerNeedleAngle = SPEEDOMETER_MIN_ANGLE
 
 local scoreTimer = pd.timer.new(1000, function()
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
@@ -435,6 +446,7 @@ end
 
 local function onShieldCollected()
     shieldHitsRemaining += SHIELD_HITS_BY_LEVEL[shieldUpgradeLevel + 1]
+    playSoundOneShot(shieldSoundPlayer)
 end
 
 local function onShrinkCollected()
@@ -447,6 +459,7 @@ end
 local function onSpeedReductionCollected()
     local reduction = SPEED_REDUCTION_BY_LEVEL[speedReductionUpgradeLevel + 1]
     worldVelocity = math.max(MIN_WORLD_VELOCITY, worldVelocity - reduction)
+    playSoundOneShot(speedReductionSoundPlayer)
 end
 
 collectablesByType.coin = CoinCollectable(coinImagetable, onCoinCollected)
@@ -983,11 +996,40 @@ local function drawVerticalProgressIcon(image, x, y, progress)
     return width
 end
 
+local function updateSpeedometerNeedle(dashSpeed)
+    local worldSpeedProgress = math.clamp(
+        (interpolatedWorldVelocity - MIN_WORLD_VELOCITY)
+            / (MAX_WORLD_VELOCITY - MIN_WORLD_VELOCITY),
+        0,
+        1
+    )
+    local speedProgress = worldSpeedProgress * SPEEDOMETER_WORLD_SPEED_WEIGHT
+
+    if playerSpeedMode == 2 then
+        speedProgress += SPEEDOMETER_FAST_MODE_BOOST
+    end
+
+    speedProgress += math.clamp(dashSpeed / DASH_INITIAL_VELOCITY, 0, 1)
+        * SPEEDOMETER_DASH_BOOST
+    speedProgress = math.clamp(speedProgress, 0, 1)
+
+    local targetAngle = SPEEDOMETER_MIN_ANGLE
+        + (SPEEDOMETER_MAX_ANGLE - SPEEDOMETER_MIN_ANGLE) * speedProgress
+    speedometerNeedleAngle +=
+        (targetAngle - speedometerNeedleAngle) * SPEEDOMETER_NEEDLE_INTERPOLATION_SPEED
+end
+
 local function drawHud()
-    local speedModeImage = speedModeImagetable:getImage(playerSpeedMode)
-    speedModeImage:draw(5, 5)
-    local speedModeWidth = speedModeImage:getSize()
-    local nextAbilityX = 5 + speedModeWidth + 5
+    local speedometerX <const> = 5
+    local speedometerY <const> = 1
+    local speedometerWidth, speedometerHeight = speedometerImage:getSize()
+    speedometerImage:draw(speedometerX, speedometerY)
+    speedometerNeedleImage:drawRotated(
+        speedometerX + speedometerWidth / 2,
+        speedometerY + speedometerHeight / 2,
+        speedometerNeedleAngle
+    )
+    local nextAbilityX = speedometerX + speedometerWidth + 5
 
     local dashImageWidth = drawVerticalProgressIcon(
         dashImage,
@@ -1136,6 +1178,7 @@ local function resetGame()
     dashCooldownDurationMilliseconds = DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
     dashUiProgress = 1
     dashUiIsDraining = false
+    speedometerNeedleAngle = SPEEDOMETER_MIN_ANGLE
     boatEngineSoundRate = ENGINE_MIN_WORLD_RATE
     boatEngineSoundVolume = ENGINE_NORMAL_VOLUME
     hudMessage = nil
@@ -1326,6 +1369,7 @@ function playdate.update()
 
     local dashSpeed = math.sqrt(dashVelocityX * dashVelocityX + dashVelocityY * dashVelocityY)
     local isDashing = dashSpeed >= DASH_WAKE_MINIMUM_VELOCITY
+    updateSpeedometerNeedle(dashSpeed)
     updateBoatEngineSound(
         playerSpeedMode == 2,
         shrinkRemainingMilliseconds ~= nil,
