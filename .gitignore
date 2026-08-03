@@ -24,5 +24,8 @@ builds/
 # Built Visual Studio Code Extensions
 *.vsix
 
+# Power Shell scripts
+*.ps1
+
 # Folder with some temp files from Playdate
 main.pdx
