@@ -1,9 +1,11 @@
 local gfx <const> = playdate.graphics
 local COLLECTION_SCALE_STEP <const> = 0.14
+local IDLE_PULSE_MAX_SCALE <const> = 1.12
+local IDLE_PULSE_PHASE_STEP <const> = 0.12
 
 class("Collectable").extends(gfx.sprite)
 
-function Collectable:init(image, collectableType, onCollected)
+function Collectable:init(image, collectableType, onCollected, idlePulseEnabled)
     Collectable.super.init(self)
     self:setImage(image)
 
@@ -14,6 +16,9 @@ function Collectable:init(image, collectableType, onCollected)
     self.active = false
     self.isCollecting = false
     self.collectionScale = 1
+    self.idlePulseEnabled = idlePulseEnabled == true
+    self.idlePulsePhase = 0
+    self.visualScale = 1
 
     -- Keep full-image collision metadata available for alphaCollision(). The main
     -- loop does not use this rectangle as the final collection decision.
@@ -25,6 +30,8 @@ end
 function Collectable:spawnAt(x, y)
     self.collectionScale = 1
     self.isCollecting = false
+    self.idlePulsePhase = 0
+    self.visualScale = 1
     self:setScale(1)
     self:moveTo(x, y)
     self.active = true
@@ -36,6 +43,8 @@ function Collectable:despawn()
     self.active = false
     self.isCollecting = false
     self.collectionScale = 1
+    self.idlePulsePhase = 0
+    self.visualScale = 1
     self:setScale(1)
     self:setVisible(false)
     self:remove()
@@ -47,6 +56,7 @@ function Collectable:collect()
     end
 
     self.isCollecting = true
+    self.collectionScale = self.visualScale
 
     if self.onCollected ~= nil then
         self.onCollected()
@@ -54,14 +64,23 @@ function Collectable:collect()
 end
 
 function Collectable:update()
-    if self.active == false or self.isCollecting == false then
+    if self.active == false then
         return
     end
 
-    self.collectionScale = math.max(0, self.collectionScale - COLLECTION_SCALE_STEP)
-    self:setScale(self.collectionScale)
+    if self.isCollecting then
+        self.collectionScale = math.max(0, self.collectionScale - COLLECTION_SCALE_STEP)
+        self.visualScale = self.collectionScale
+        self:setScale(self.collectionScale)
 
-    if self.collectionScale == 0 then
-        self:despawn()
+        if self.collectionScale == 0 then
+            self:despawn()
+        end
+    elseif self.idlePulseEnabled then
+        self.idlePulsePhase = (self.idlePulsePhase + IDLE_PULSE_PHASE_STEP)
+            % (math.pi * 2)
+        local pulseProgress = (1 - math.cos(self.idlePulsePhase)) * 0.5
+        self.visualScale = 1 + (IDLE_PULSE_MAX_SCALE - 1) * pulseProgress
+        self:setScale(self.visualScale)
     end
 end

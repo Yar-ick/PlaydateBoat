@@ -4,6 +4,7 @@ import "CoreLibs/crank"
 import "CoreLibs/animation"
 import "CoreLibs/object"
 import "CoreLibs/sprites"
+import "GameplayTuning"
 import "Collectable"
 import "CoinCollectable"
 import "ShieldCollectable"
@@ -15,6 +16,7 @@ import "InteractiveSpawn"
 local pd <const> = playdate
 local pdg <const> = playdate.graphics
 local pds <const> = playdate.sound
+local TUNING <const> = GameplayTuning
 
 function math.clamp(val, lower, upper)
     return math.max(lower, math.min(upper, val))
@@ -23,97 +25,6 @@ end
 function math.normalizeAngle(angle)
     return angle % 360
 end
-
--- Gameplay tuning
-local INITIAL_WORLD_VELOCITY <const> = 1
-local MAX_WORLD_VELOCITY <const> = 8
-local WORLD_VELOCITY_GROWTH_MULTIPLIER <const> = 1.18
-local VELOCITY_INCREASE_INTERVAL_MS <const> = 5000
-local MIN_WORLD_VELOCITY <const> = 0.4
-
-local DASH_HOLD_THRESHOLD_MS <const> = 200
-local DASH_INITIAL_VELOCITY <const> = 9
-local DASH_INERTIA_RETENTION_PER_FRAME <const> = 0.86
-local DASH_STOP_VELOCITY <const> = 0.1
-local DASH_WAKE_MINIMUM_VELOCITY <const> = 0.5
-local DASH_UI_DRAIN_DURATION_MS <const> = 180
-
-local ENGINE_MIN_WORLD_RATE <const> = 0.88
-local ENGINE_MAX_WORLD_RATE <const> = 1.18
-local ENGINE_FAST_RATE_MULTIPLIER <const> = 1.12
-local ENGINE_SHRINK_RATE_MULTIPLIER <const> = 1.22
-local ENGINE_MAX_RATE <const> = 1.65
-local ENGINE_NORMAL_VOLUME <const> = 0.24
-local ENGINE_FAST_VOLUME <const> = 0.36
-local ENGINE_SOUND_INTERPOLATION_SPEED <const> = 0.12
-
-local WATER_FLOW_MIN_RATE <const> = 0.75
-local WATER_FLOW_MAX_RATE <const> = 1.35
-local WATER_FLOW_VOLUME <const> = 0.50
-local WATER_FLOW_RATE_INTERPOLATION_SPEED <const> = 0.08
-
-local SPEEDOMETER_MIN_ANGLE <const> = -120
-local SPEEDOMETER_MAX_ANGLE <const> = 120
-local SPEEDOMETER_WORLD_SPEED_WEIGHT <const> = 0.70
-local SPEEDOMETER_FAST_MODE_BOOST <const> = 0.15
-local SPEEDOMETER_DASH_BOOST <const> = 0.30
-local SPEEDOMETER_NEEDLE_INTERPOLATION_SPEED <const> = 0.18
-
-local MAX_ROCKS <const> = 10
-local INTERACTIVE_SPAWN_PADDING <const> = 4
-local INTERACTIVE_SPAWN_ATTEMPTS <const> = 200
-local ROCK_SPAWN_MINIMUM_X <const> = -600
-local COLLECTABLE_SPAWN_MINIMUM_X <const> = -160
-local WORLD_SPAWN_MAXIMUM_Y <const> = 240
-local WORLD_SPAWN_MINIMUM_Y <const> = 50
-
-local ROCK_Z_INDEX <const> = 0
-local ROCK_EXPLOSION_Z_INDEX <const> = 10
-local COLLECTABLE_Z_INDEX <const> = 20
-local PLAYER_Z_INDEX <const> = 30
-
--- Each inactive collectable waits for its interval and then rolls its spawn chance.
-local COLLECTABLE_SPAWN_CONFIG <const> = {
-    coin = {
-        spawnChancePercent = 60,
-        minimumIntervalMs = 3000,
-        maximumIntervalMs = 8000
-    },
-    shield = {
-        spawnChancePercent = 35,
-        minimumIntervalMs = 5000,
-        maximumIntervalMs = 8000
-    },
-    shrink = {
-        spawnChancePercent = 100,
-        minimumIntervalMs = 10000,
-        maximumIntervalMs = 18000
-    },
-    speedReduction = {
-        spawnChancePercent = 20,
-        minimumIntervalMs = 12000,
-        maximumIntervalMs = 20000
-    }
-}
-
--- Level 3 is the third and final purchased upgrade (levels start at 0).
-local SHIELD_HITS_BY_LEVEL <const> = { 1, 2, 3, 5 }
-local SHRINK_DURATION_MS_BY_LEVEL <const> = { 5000, 7000, 10000, 15000 }
-local SPEED_REDUCTION_BY_LEVEL <const> = { 0.50, 0.75, 1.00, 1.50 }
-local DASH_COOLDOWN_MS_BY_LEVEL <const> = { 8000, 7500, 5000, 2500 }
-
-local ABILITY_UPGRADE_COSTS <const> = {
-    shield = { 5, 15, 30 },
-    shrink = { 5, 15, 30 },
-    speedReduction = { 5, 15, 30 },
-    dash = { 5, 15, 30 }
-}
-
-local MAX_ABILITY_UPGRADE_LEVEL <const> = 3
-local SHRUNK_PLAYER_SCALE <const> = 0.5
-local PLAYER_SCALE_INTERPOLATION_SPEED <const> = 0.12
-
-local SAVE_FILE_NAME <const> = "boat-save"
 
 local secondsSinceEpoch = pd.getSecondsSinceEpoch()
 math.randomseed(secondsSinceEpoch)
@@ -132,6 +43,7 @@ local rockExplosionImagetable = pdg.imagetable.new("images/RockExplosion")
 local speedometerImage = pdg.image.new("images/Speedometer")
 local speedometerNeedleImage = pdg.image.new("images/SpeedometerNeedle")
 local coinImagetable = pdg.imagetable.new("images/Coin")
+local starImage = pdg.image.new("images/Star")
 local shieldImage = pdg.image.new("images/Shield")
 local shrinkImage = pdg.image.new("images/Srink")
 local speedReductionImage = pdg.image.new("images/SpeedReduction")
@@ -143,10 +55,10 @@ local shieldSoundPlayer = pds.sampleplayer.new("sounds/Shield")
 local speedReductionSoundPlayer = pds.sampleplayer.new("sounds/SpeedReduction")
 local boatExplosionSoundPlayer = pds.sampleplayer.new("sounds/BoatExplosion")
 local boatEngineSoundPlayer = pds.sampleplayer.new("sounds/BoatEngine")
-local boatEngineSoundRate = ENGINE_MIN_WORLD_RATE
-local boatEngineSoundVolume = ENGINE_NORMAL_VOLUME
+local boatEngineSoundRate = TUNING.ENGINE_MIN_WORLD_RATE
+local boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
 local waterFlowSoundPlayer = pds.sampleplayer.new("sounds/WaterFlow")
-local waterFlowSoundRate = WATER_FLOW_MIN_RATE
+local waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
 local rockExplosionSoundPlayers = {}
 local rockExplosionSoundPlayerCursor = 1
 
@@ -185,31 +97,31 @@ local function stopBoatEngineSound()
 end
 
 local function updateBoatEngineSound(isFast, isShrunk, currentWorldVelocity)
-    local velocityRange = MAX_WORLD_VELOCITY - INITIAL_WORLD_VELOCITY
+    local velocityRange = TUNING.MAX_WORLD_VELOCITY - TUNING.INITIAL_WORLD_VELOCITY
     local velocityProgress = 0
     if velocityRange > 0 then
         velocityProgress = math.clamp(
-            (currentWorldVelocity - INITIAL_WORLD_VELOCITY) / velocityRange,
+            (currentWorldVelocity - TUNING.INITIAL_WORLD_VELOCITY) / velocityRange,
             0,
             1
         )
     end
 
-    local targetRate = ENGINE_MIN_WORLD_RATE
-        + (ENGINE_MAX_WORLD_RATE - ENGINE_MIN_WORLD_RATE) * velocityProgress
+    local targetRate = TUNING.ENGINE_MIN_WORLD_RATE
+        + (TUNING.ENGINE_MAX_WORLD_RATE - TUNING.ENGINE_MIN_WORLD_RATE) * velocityProgress
     if isFast then
-        targetRate *= ENGINE_FAST_RATE_MULTIPLIER
+        targetRate *= TUNING.ENGINE_FAST_RATE_MULTIPLIER
     end
     if isShrunk then
-        targetRate *= ENGINE_SHRINK_RATE_MULTIPLIER
+        targetRate *= TUNING.ENGINE_SHRINK_RATE_MULTIPLIER
     end
-    targetRate = math.min(targetRate, ENGINE_MAX_RATE)
-    local targetVolume = isFast and ENGINE_FAST_VOLUME or ENGINE_NORMAL_VOLUME
+    targetRate = math.min(targetRate, TUNING.ENGINE_MAX_RATE)
+    local targetVolume = isFast and TUNING.ENGINE_FAST_VOLUME or TUNING.ENGINE_NORMAL_VOLUME
 
     boatEngineSoundRate +=
-        (targetRate - boatEngineSoundRate) * ENGINE_SOUND_INTERPOLATION_SPEED
+        (targetRate - boatEngineSoundRate) * TUNING.ENGINE_SOUND_INTERPOLATION_SPEED
     boatEngineSoundVolume +=
-        (targetVolume - boatEngineSoundVolume) * ENGINE_SOUND_INTERPOLATION_SPEED
+        (targetVolume - boatEngineSoundVolume) * TUNING.ENGINE_SOUND_INTERPOLATION_SPEED
     boatEngineSoundPlayer:setRate(boatEngineSoundRate)
     boatEngineSoundPlayer:setVolume(boatEngineSoundVolume)
 end
@@ -218,7 +130,7 @@ local function startWaterFlowSound()
     if waterFlowSoundPlayer:isPlaying() == false then
         waterFlowSoundPlayer:setOffset(0)
         waterFlowSoundPlayer:setRate(waterFlowSoundRate)
-        waterFlowSoundPlayer:setVolume(WATER_FLOW_VOLUME)
+        waterFlowSoundPlayer:setVolume(TUNING.WATER_FLOW_VOLUME)
         waterFlowSoundPlayer:play(0)
     end
 end
@@ -231,16 +143,16 @@ end
 
 local function updateWaterFlowSound(currentWorldVelocity)
     local velocityProgress = math.clamp(
-        (currentWorldVelocity - MIN_WORLD_VELOCITY)
-            / (MAX_WORLD_VELOCITY - MIN_WORLD_VELOCITY),
+        (currentWorldVelocity - TUNING.MIN_WORLD_VELOCITY)
+            / (TUNING.MAX_WORLD_VELOCITY - TUNING.MIN_WORLD_VELOCITY),
         0,
         1
     )
-    local targetRate = WATER_FLOW_MIN_RATE
-        + (WATER_FLOW_MAX_RATE - WATER_FLOW_MIN_RATE) * velocityProgress
+    local targetRate = TUNING.WATER_FLOW_MIN_RATE
+        + (TUNING.WATER_FLOW_MAX_RATE - TUNING.WATER_FLOW_MIN_RATE) * velocityProgress
 
     waterFlowSoundRate +=
-        (targetRate - waterFlowSoundRate) * WATER_FLOW_RATE_INTERPOLATION_SPEED
+        (targetRate - waterFlowSoundRate) * TUNING.WATER_FLOW_RATE_INTERPOLATION_SPEED
     waterFlowSoundPlayer:setRate(waterFlowSoundRate)
 end
 
@@ -263,7 +175,7 @@ local explosionFrameDelay = 100
 local explosionImageWidth, explosionImageHeight = explosionImagetable:getImage(1):getSize()
 local rockExplosions = {}
 
-local savedProgress = pd.datastore.read(SAVE_FILE_NAME)
+local savedProgress = pd.datastore.read(TUNING.SAVE_FILE_NAME)
 if type(savedProgress) ~= "table" then
     savedProgress = {}
 end
@@ -274,12 +186,12 @@ if type(savedUpgrades) ~= "table" then
 end
 
 local playerCoins = math.max(0, math.floor(tonumber(savedProgress.coins) or 0))
-local shieldUpgradeLevel = math.clamp(math.floor(tonumber(savedUpgrades.shield) or 0), 0, MAX_ABILITY_UPGRADE_LEVEL)
-local shrinkUpgradeLevel = math.clamp(math.floor(tonumber(savedUpgrades.shrink) or 0), 0, MAX_ABILITY_UPGRADE_LEVEL)
+local shieldUpgradeLevel = math.clamp(math.floor(tonumber(savedUpgrades.shield) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
+local shrinkUpgradeLevel = math.clamp(math.floor(tonumber(savedUpgrades.shrink) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
 local speedReductionUpgradeLevel =
-    math.clamp(math.floor(tonumber(savedUpgrades.speedReduction) or 0), 0, MAX_ABILITY_UPGRADE_LEVEL)
+    math.clamp(math.floor(tonumber(savedUpgrades.speedReduction) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
 local dashUpgradeLevel =
-    math.clamp(math.floor(tonumber(savedUpgrades.dash) or 0), 0, MAX_ABILITY_UPGRADE_LEVEL)
+    math.clamp(math.floor(tonumber(savedUpgrades.dash) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
 
 local progressNeedsSave = false
 local saveFailureWasLogged = false
@@ -305,7 +217,7 @@ local function saveProgress()
 
     -- A read-only Simulator SDK folder must not be able to terminate gameplay.
     -- Keep the data dirty so lifecycle callbacks can retry after permissions change.
-    local writeCompleted, writeResult = pcall(pd.datastore.write, progress, SAVE_FILE_NAME)
+    local writeCompleted, writeResult = pcall(pd.datastore.write, progress, TUNING.SAVE_FILE_NAME)
 
     if writeCompleted and writeResult ~= false then
         progressNeedsSave = false
@@ -339,10 +251,10 @@ local bButtonHoldModeActivated = false
 local dashVelocityX = 0
 local dashVelocityY = 0
 local dashCooldownRemainingMilliseconds = 0
-local dashCooldownDurationMilliseconds = DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
+local dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
 local dashUiProgress = 1
 local dashUiIsDraining = false
-local speedometerNeedleAngle = SPEEDOMETER_MIN_ANGLE
+local speedometerNeedleAngle = TUNING.SPEEDOMETER_MIN_ANGLE
 
 local scoreTimer = pd.timer.new(1000, function()
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
@@ -362,7 +274,7 @@ local velocityInterpolationSpeed = 0.25  -- Smoothness of velocity transitions (
 local waterStreamVelocity = 3  -- X+ direction velocity from water stream
 
 -- Every world object uses these same target and interpolated velocity values.
-local worldVelocity = INITIAL_WORLD_VELOCITY
+local worldVelocity = TUNING.INITIAL_WORLD_VELOCITY
 local interpolatedWorldVelocity = worldVelocity
 local waterImage = pdg.image.new("images/WaterBackground")
 local waterImageWidth = waterImage:getSize()
@@ -406,12 +318,12 @@ local function findRockSpawnPosition(rock)
         rock,
         rock.imageWidth,
         rock.imageHeight,
-        ROCK_SPAWN_MINIMUM_X,
+        TUNING.ROCK_SPAWN_MINIMUM_X,
         -rock.imageWidth / 2,
-        WORLD_SPAWN_MINIMUM_Y + rock.imageHeight / 2,
-        WORLD_SPAWN_MAXIMUM_Y - rock.imageHeight / 2,
-        INTERACTIVE_SPAWN_PADDING,
-        INTERACTIVE_SPAWN_ATTEMPTS
+        TUNING.WORLD_SPAWN_MINIMUM_Y + rock.imageHeight / 2,
+        TUNING.WORLD_SPAWN_MAXIMUM_Y - rock.imageHeight / 2,
+        TUNING.INTERACTIVE_SPAWN_PADDING,
+        TUNING.INTERACTIVE_SPAWN_ATTEMPTS
     )
 end
 
@@ -431,11 +343,11 @@ local function resetRockPosition(rock)
     return true
 end
 
-for i = 1, MAX_ROCKS do
+for i = 1, TUNING.MAX_ROCKS do
     local rock = pdg.sprite.new()
     rock.objectType = "rock"
     rock.collisionResponse = pdg.sprite.kCollisionTypeOverlap
-    rock:setZIndex(ROCK_Z_INDEX)
+    rock:setZIndex(TUNING.ROCK_Z_INDEX)
     rock:moveTo(-20, -100)
     rock:setVisible(false)
     rock.active = false
@@ -443,14 +355,14 @@ for i = 1, MAX_ROCKS do
     rockSprites[i] = rock
 end
 
-for i = 1, MAX_ROCKS do
+for i = 1, TUNING.MAX_ROCKS do
     resetRockPosition(rockSprites[i])
 end
 
-local velocityIncreaseTimer = pd.timer.new(VELOCITY_INCREASE_INTERVAL_MS, function()
+local velocityIncreaseTimer = pd.timer.new(TUNING.VELOCITY_INCREASE_INTERVAL_MS, function()
     worldVelocity = math.min(
-        MAX_WORLD_VELOCITY,
-        worldVelocity * WORLD_VELOCITY_GROWTH_MULTIPLIER
+        TUNING.MAX_WORLD_VELOCITY,
+        worldVelocity * TUNING.WORLD_VELOCITY_GROWTH_MULTIPLIER
     )
     playerScoreStep += 10
 end)
@@ -468,7 +380,7 @@ local playerCollisionY = playerImageHeight / 2
 local playerCollisionWidth = playerImageWidth / 3
 local playerCollisionHeight = playerImageHeight / 5
 playerSprite.collisionResponse = pdg.sprite.kCollisionTypeOverlap
-playerSprite:setZIndex(PLAYER_Z_INDEX)
+playerSprite:setZIndex(TUNING.PLAYER_Z_INDEX)
 playerSprite:setCollideRect(playerCollisionX, playerCollisionY, playerCollisionWidth, playerCollisionHeight)
 playerSprite:moveTo(playerStartX, playerStartY)
 playerSprite:add()
@@ -492,20 +404,20 @@ local function onCoinCollected()
 end
 
 local function onShieldCollected()
-    shieldHitsRemaining += SHIELD_HITS_BY_LEVEL[shieldUpgradeLevel + 1]
+    shieldHitsRemaining += TUNING.SHIELD_HITS_BY_LEVEL[shieldUpgradeLevel + 1]
     playSoundOneShot(shieldSoundPlayer)
 end
 
 local function onShrinkCollected()
-    shrinkDurationMilliseconds = SHRINK_DURATION_MS_BY_LEVEL[shrinkUpgradeLevel + 1]
-    targetPlayerScale = SHRUNK_PLAYER_SCALE
+    shrinkDurationMilliseconds = TUNING.SHRINK_DURATION_MS_BY_LEVEL[shrinkUpgradeLevel + 1]
+    targetPlayerScale = TUNING.SHRUNK_PLAYER_SCALE
     shrinkRemainingMilliseconds = shrinkDurationMilliseconds
     playSoundOneShot(shrinkSoundPlayer)
 end
 
 local function onSpeedReductionCollected()
-    local reduction = SPEED_REDUCTION_BY_LEVEL[speedReductionUpgradeLevel + 1]
-    worldVelocity = math.max(MIN_WORLD_VELOCITY, worldVelocity - reduction)
+    local reduction = TUNING.SPEED_REDUCTION_BY_LEVEL[speedReductionUpgradeLevel + 1]
+    worldVelocity = math.max(TUNING.MIN_WORLD_VELOCITY, worldVelocity - reduction)
     playSoundOneShot(speedReductionSoundPlayer)
 end
 
@@ -518,16 +430,16 @@ collectablesByType.speedReduction =
 for i = 1, #collectableTypes do
     local collectableType = collectableTypes[i]
     local collectable = collectablesByType[collectableType]
-    collectable:setZIndex(COLLECTABLE_Z_INDEX)
+    collectable:setZIndex(TUNING.COLLECTABLE_Z_INDEX)
     collectableSprites[#collectableSprites + 1] = collectable
 
-    local config = COLLECTABLE_SPAWN_CONFIG[collectableType]
+    local config = TUNING.COLLECTABLE_SPAWN_CONFIG[collectableType]
     collectableSpawnRemainingMilliseconds[collectableType] =
         math.random(config.minimumIntervalMs, config.maximumIntervalMs)
 end
 
 local function resetCollectableSpawnCountdown(collectableType)
-    local config = COLLECTABLE_SPAWN_CONFIG[collectableType]
+    local config = TUNING.COLLECTABLE_SPAWN_CONFIG[collectableType]
     collectableSpawnRemainingMilliseconds[collectableType] =
         math.random(config.minimumIntervalMs, config.maximumIntervalMs)
 end
@@ -538,12 +450,12 @@ local function spawnCollectable(collectable)
         collectable,
         collectable.imageWidth,
         collectable.imageHeight,
-        COLLECTABLE_SPAWN_MINIMUM_X,
+        TUNING.COLLECTABLE_SPAWN_MINIMUM_X,
         -collectable.imageWidth / 2,
-        WORLD_SPAWN_MINIMUM_Y + collectable.imageHeight / 2,
-        WORLD_SPAWN_MAXIMUM_Y - collectable.imageHeight / 2,
-        INTERACTIVE_SPAWN_PADDING,
-        INTERACTIVE_SPAWN_ATTEMPTS
+        TUNING.WORLD_SPAWN_MINIMUM_Y + collectable.imageHeight / 2,
+        TUNING.WORLD_SPAWN_MAXIMUM_Y - collectable.imageHeight / 2,
+        TUNING.INTERACTIVE_SPAWN_PADDING,
+        TUNING.INTERACTIVE_SPAWN_ATTEMPTS
     )
 
     if x == nil then
@@ -573,7 +485,7 @@ local function updateCollectables(elapsedMilliseconds)
             collectableSpawnRemainingMilliseconds[collectableType] = remaining
 
             if remaining <= 0 then
-                local config = COLLECTABLE_SPAWN_CONFIG[collectableType]
+                local config = TUNING.COLLECTABLE_SPAWN_CONFIG[collectableType]
                 resetCollectableSpawnCountdown(collectableType)
 
                 if math.random(100) <= config.spawnChancePercent then
@@ -608,7 +520,7 @@ local function updatePlayerScale(elapsedMilliseconds)
     if math.abs(scaleDifference) < 0.005 then
         currentPlayerScale = targetPlayerScale
     else
-        currentPlayerScale += scaleDifference * PLAYER_SCALE_INTERPOLATION_SPEED
+        currentPlayerScale += scaleDifference * TUNING.PLAYER_SCALE_INTERPOLATION_SPEED
     end
 
     playerSprite:setScale(currentPlayerScale)
@@ -629,7 +541,7 @@ local function updateDashCooldown(elapsedMilliseconds)
     if dashUiIsDraining then
         dashUiProgress = math.max(
             0,
-            dashUiProgress - elapsedMilliseconds / DASH_UI_DRAIN_DURATION_MS
+            dashUiProgress - elapsedMilliseconds / TUNING.DASH_UI_DRAIN_DURATION_MS
         )
 
         if dashUiProgress == 0 then
@@ -660,9 +572,9 @@ local function startDash(crankPositionForVelocity)
         directionY = math.sin(math.rad(crankPositionForVelocity))
     end
 
-    dashVelocityX = directionX * DASH_INITIAL_VELOCITY
-    dashVelocityY = directionY * DASH_INITIAL_VELOCITY
-    dashCooldownDurationMilliseconds = DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
+    dashVelocityX = directionX * TUNING.DASH_INITIAL_VELOCITY
+    dashVelocityY = directionY * TUNING.DASH_INITIAL_VELOCITY
+    dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
     dashCooldownRemainingMilliseconds = dashCooldownDurationMilliseconds
     dashUiProgress = 1
     dashUiIsDraining = true
@@ -680,7 +592,7 @@ local function updateBButton(elapsedMilliseconds, crankPositionForVelocity)
     if bButtonIsBeingHeld and pd.buttonIsPressed(pd.kButtonB) then
         bButtonHeldMilliseconds += elapsedMilliseconds
 
-        if bButtonHeldMilliseconds >= DASH_HOLD_THRESHOLD_MS
+        if bButtonHeldMilliseconds >= TUNING.DASH_HOLD_THRESHOLD_MS
             and bButtonHoldModeActivated == false
         then
             bButtonHoldModeActivated = true
@@ -702,16 +614,16 @@ end
 
 local function updateDashInertia(elapsedMilliseconds)
     local frameDurationMilliseconds <const> = 1000 / 30
-    local retention = DASH_INERTIA_RETENTION_PER_FRAME
+    local retention = TUNING.DASH_INERTIA_RETENTION_PER_FRAME
         ^ (elapsedMilliseconds / frameDurationMilliseconds)
     dashVelocityX *= retention
     dashVelocityY *= retention
 
-    if math.abs(dashVelocityX) < DASH_STOP_VELOCITY then
+    if math.abs(dashVelocityX) < TUNING.DASH_STOP_VELOCITY then
         dashVelocityX = 0
     end
 
-    if math.abs(dashVelocityY) < DASH_STOP_VELOCITY then
+    if math.abs(dashVelocityY) < TUNING.DASH_STOP_VELOCITY then
         dashVelocityY = 0
     end
 end
@@ -763,10 +675,10 @@ local function refreshUpgradeMenuTitles()
     local level = getAbilityUpgradeLevel(selectedUpgradeAbility)
     local label = upgradeAbilityLabels[selectedUpgradeAbility]
 
-    if level >= MAX_ABILITY_UPGRADE_LEVEL then
+    if level >= TUNING.MAX_ABILITY_UPGRADE_LEVEL then
         upgradePurchaseMenuItem:setTitle("Buy " .. label .. ": MAX")
     else
-        local cost = ABILITY_UPGRADE_COSTS[selectedUpgradeAbility][level + 1]
+        local cost = TUNING.ABILITY_UPGRADE_COSTS[selectedUpgradeAbility][level + 1]
         upgradePurchaseMenuItem:setTitle("Buy " .. label .. " L" .. (level + 1) .. " (" .. cost .. "c)")
     end
 end
@@ -774,12 +686,12 @@ end
 local function purchaseAbilityUpgrade(abilityType)
     local level = getAbilityUpgradeLevel(abilityType)
 
-    if level >= MAX_ABILITY_UPGRADE_LEVEL then
+    if level >= TUNING.MAX_ABILITY_UPGRADE_LEVEL then
         showHudMessage("Ability is already max level")
         return
     end
 
-    local cost = ABILITY_UPGRADE_COSTS[abilityType][level + 1]
+    local cost = TUNING.ABILITY_UPGRADE_COSTS[abilityType][level + 1]
     if playerCoins < cost then
         showHudMessage("Need " .. cost .. " coins")
         return
@@ -789,7 +701,7 @@ local function purchaseAbilityUpgrade(abilityType)
     setAbilityUpgradeLevel(abilityType, level + 1)
 
     if abilityType == "dash" and dashCooldownRemainingMilliseconds <= 0 then
-        dashCooldownDurationMilliseconds = DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
+        dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
     end
 
     markProgressChanged()
@@ -988,7 +900,7 @@ end
 
 local function startRockExplosion(x, y)
     local explosionSprite = pdg.sprite.new(rockExplosionImagetable:getImage(1))
-    explosionSprite:setZIndex(ROCK_EXPLOSION_Z_INDEX)
+    explosionSprite:setZIndex(TUNING.ROCK_EXPLOSION_Z_INDEX)
     explosionSprite:moveTo(x, y)
     explosionSprite:add()
 
@@ -1045,25 +957,25 @@ end
 
 local function updateSpeedometerNeedle(dashSpeed)
     local worldSpeedProgress = math.clamp(
-        (interpolatedWorldVelocity - MIN_WORLD_VELOCITY)
-            / (MAX_WORLD_VELOCITY - MIN_WORLD_VELOCITY),
+        (interpolatedWorldVelocity - TUNING.MIN_WORLD_VELOCITY)
+            / (TUNING.MAX_WORLD_VELOCITY - TUNING.MIN_WORLD_VELOCITY),
         0,
         1
     )
-    local speedProgress = worldSpeedProgress * SPEEDOMETER_WORLD_SPEED_WEIGHT
+    local speedProgress = worldSpeedProgress * TUNING.SPEEDOMETER_WORLD_SPEED_WEIGHT
 
     if playerSpeedMode == 2 then
-        speedProgress += SPEEDOMETER_FAST_MODE_BOOST
+        speedProgress += TUNING.SPEEDOMETER_FAST_MODE_BOOST
     end
 
-    speedProgress += math.clamp(dashSpeed / DASH_INITIAL_VELOCITY, 0, 1)
-        * SPEEDOMETER_DASH_BOOST
+    speedProgress += math.clamp(dashSpeed / TUNING.DASH_INITIAL_VELOCITY, 0, 1)
+        * TUNING.SPEEDOMETER_DASH_BOOST
     speedProgress = math.clamp(speedProgress, 0, 1)
 
-    local targetAngle = SPEEDOMETER_MIN_ANGLE
-        + (SPEEDOMETER_MAX_ANGLE - SPEEDOMETER_MIN_ANGLE) * speedProgress
+    local targetAngle = TUNING.SPEEDOMETER_MIN_ANGLE
+        + (TUNING.SPEEDOMETER_MAX_ANGLE - TUNING.SPEEDOMETER_MIN_ANGLE) * speedProgress
     speedometerNeedleAngle +=
-        (targetAngle - speedometerNeedleAngle) * SPEEDOMETER_NEEDLE_INTERPOLATION_SPEED
+        (targetAngle - speedometerNeedleAngle) * TUNING.SPEEDOMETER_NEEDLE_INTERPOLATION_SPEED
 end
 
 local function drawHud()
@@ -1102,16 +1014,19 @@ local function drawHud()
         pdg.drawText("x" .. shieldHitsRemaining, nextAbilityX + 33, 7)
     end
 
-    local scoreText = "Score: " .. playerScore
+    local scoreText = "" .. playerScore
     local scoreTextWidth = pdg.getTextSize(scoreText)
     local scoreX = 395 - scoreTextWidth
+    local starImageWidth = starImage:getSize()
+    local starX = scoreX - starImageWidth - 5
+    starImage:draw(starX, 1)
     pdg.drawText(scoreText, scoreX, 7)
 
     local coinText = tostring(playerCoins)
     local coinTextWidth = pdg.getTextSize(coinText)
     local coinImage = coinImagetable:getImage(1)
     local coinImageWidth = coinImage:getSize()
-    local coinX = scoreX - coinImageWidth - coinTextWidth - 10
+    local coinX = starX - coinImageWidth - coinTextWidth - 10
     coinImage:draw(coinX, 5)
     pdg.drawText(coinText, coinX + coinImageWidth + 2, 7)
 
@@ -1206,7 +1121,7 @@ local function resetGame()
     targetYVelocity = 0
     playerX = playerStartX
     playerY = playerStartY
-    worldVelocity = INITIAL_WORLD_VELOCITY
+    worldVelocity = TUNING.INITIAL_WORLD_VELOCITY
     interpolatedWorldVelocity = worldVelocity
     playerSpeedMode = 1
     playerScore = 0
@@ -1222,13 +1137,13 @@ local function resetGame()
     dashVelocityX = 0
     dashVelocityY = 0
     dashCooldownRemainingMilliseconds = 0
-    dashCooldownDurationMilliseconds = DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
+    dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
     dashUiProgress = 1
     dashUiIsDraining = false
-    speedometerNeedleAngle = SPEEDOMETER_MIN_ANGLE
-    boatEngineSoundRate = ENGINE_MIN_WORLD_RATE
-    boatEngineSoundVolume = ENGINE_NORMAL_VOLUME
-    waterFlowSoundRate = WATER_FLOW_MIN_RATE
+    speedometerNeedleAngle = TUNING.SPEEDOMETER_MIN_ANGLE
+    boatEngineSoundRate = TUNING.ENGINE_MIN_WORLD_RATE
+    boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
+    waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
     hudMessage = nil
     hudMessageRemainingMilliseconds = 0
 
@@ -1256,12 +1171,12 @@ local function resetGame()
     clearWakeLines()
     resetCollectables()
 
-    for i = 1, MAX_ROCKS do
+    for i = 1, TUNING.MAX_ROCKS do
         rockSprites[i].active = false
         rockSprites[i]:setVisible(false)
     end
 
-    for i = 1, MAX_ROCKS do
+    for i = 1, TUNING.MAX_ROCKS do
         resetRockPosition(rockSprites[i])
     end
 
@@ -1363,7 +1278,7 @@ function playdate.update()
         end
     end
 
-    for i = 1, MAX_ROCKS do
+    for i = 1, TUNING.MAX_ROCKS do
         local rock = rockSprites[i]
 
         if rock.active then
@@ -1381,7 +1296,7 @@ function playdate.update()
 
     -- Recycle rocks after collectables move/spawn so the shared overlap check sees
     -- every interactable object at its final position for this frame.
-    for i = 1, MAX_ROCKS do
+    for i = 1, TUNING.MAX_ROCKS do
         local rock = rockSprites[i]
 
         if rock.active == false then
@@ -1418,7 +1333,7 @@ function playdate.update()
     playerSprite:setImage(playerImagetable:getImage(playerSpriteIndexFromAngle))
 
     local dashSpeed = math.sqrt(dashVelocityX * dashVelocityX + dashVelocityY * dashVelocityY)
-    local isDashing = dashSpeed >= DASH_WAKE_MINIMUM_VELOCITY
+    local isDashing = dashSpeed >= TUNING.DASH_WAKE_MINIMUM_VELOCITY
     updateSpeedometerNeedle(dashSpeed)
     updateBoatEngineSound(
         playerSpeedMode == 2,
