@@ -59,11 +59,26 @@ local boatEngineSoundRate = TUNING.ENGINE_MIN_WORLD_RATE
 local boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
 local waterFlowSoundPlayer = pds.sampleplayer.new("sounds/WaterFlow")
 local waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
+local gameMusicPlayer = pds.fileplayer.new("sounds/Banners in the Wind")
+local gameMusicRate = TUNING.MUSIC_NORMAL_RATE
+local sfxChannel = pds.channel.new()
+local musicChannel = pds.channel.new()
 local rockExplosionSoundPlayers = {}
 local rockExplosionSoundPlayerCursor = 1
 
+sfxChannel:addSource(coinPickupSoundPlayer)
+sfxChannel:addSource(dashSoundPlayer)
+sfxChannel:addSource(shrinkSoundPlayer)
+sfxChannel:addSource(shieldSoundPlayer)
+sfxChannel:addSource(speedReductionSoundPlayer)
+sfxChannel:addSource(boatExplosionSoundPlayer)
+sfxChannel:addSource(boatEngineSoundPlayer)
+sfxChannel:addSource(waterFlowSoundPlayer)
+musicChannel:addSource(gameMusicPlayer)
+
 for i = 1, 4 do
     rockExplosionSoundPlayers[i] = pds.sampleplayer.new("sounds/RockExplosion")
+    sfxChannel:addSource(rockExplosionSoundPlayers[i])
 end
 
 local function playSoundOneShot(soundPlayer)
@@ -156,14 +171,45 @@ local function updateWaterFlowSound(currentWorldVelocity)
     waterFlowSoundPlayer:setRate(waterFlowSoundRate)
 end
 
+local function startGameMusic()
+    if gameMusicPlayer:isPlaying() == false then
+        gameMusicPlayer:setRate(gameMusicRate)
+        gameMusicPlayer:setVolume(TUNING.MUSIC_VOLUME)
+        gameMusicPlayer:play(0)
+    end
+end
+
+local function pauseGameMusic()
+    if gameMusicPlayer:isPlaying() then
+        gameMusicPlayer:pause()
+    end
+end
+
+local function updateGameMusic(currentWorldVelocity)
+    local velocityProgress = math.clamp(
+        (currentWorldVelocity - TUNING.INITIAL_WORLD_VELOCITY)
+            / (TUNING.MAX_WORLD_VELOCITY - TUNING.INITIAL_WORLD_VELOCITY),
+        0,
+        1
+    )
+    local targetRate = TUNING.MUSIC_NORMAL_RATE
+        + (TUNING.MUSIC_MAX_RATE - TUNING.MUSIC_NORMAL_RATE) * velocityProgress
+
+    gameMusicRate +=
+        (targetRate - gameMusicRate) * TUNING.MUSIC_RATE_INTERPOLATION_SPEED
+    gameMusicPlayer:setRate(gameMusicRate)
+end
+
 local function startGameplayLoopSounds()
     startBoatEngineSound()
     startWaterFlowSound()
+    startGameMusic()
 end
 
 local function stopGameplayLoopSounds()
     stopBoatEngineSound()
     stopWaterFlowSound()
+    pauseGameMusic()
 end
 
 local CRASH_MESSAGE_TEXT <const> = "*You crashed!*\n*Press A to restart*"
@@ -192,6 +238,14 @@ local speedReductionUpgradeLevel =
     math.clamp(math.floor(tonumber(savedUpgrades.speedReduction) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
 local dashUpgradeLevel =
     math.clamp(math.floor(tonumber(savedUpgrades.dash) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
+local AUDIO_MODE_OPTIONS <const> = { "SFX + Music", "SFX", "Music" }
+local selectedAudioMode = savedProgress.audioMode
+
+if selectedAudioMode ~= AUDIO_MODE_OPTIONS[1]
+    and selectedAudioMode ~= AUDIO_MODE_OPTIONS[2]
+    and selectedAudioMode ~= AUDIO_MODE_OPTIONS[3] then
+    selectedAudioMode = AUDIO_MODE_OPTIONS[1]
+end
 
 local progressNeedsSave = false
 local saveFailureWasLogged = false
@@ -207,6 +261,7 @@ local function saveProgress()
 
     local progress = {
         coins = playerCoins,
+        audioMode = selectedAudioMode,
         upgrades = {
             shield = shieldUpgradeLevel,
             shrink = shrinkUpgradeLevel,
@@ -232,6 +287,20 @@ local function saveProgress()
 
     return false
 end
+
+local function applyAudioMode()
+    sfxChannel:setVolume(selectedAudioMode == AUDIO_MODE_OPTIONS[3] and 0 or 1)
+    musicChannel:setVolume(selectedAudioMode == AUDIO_MODE_OPTIONS[2] and 0 or 1)
+end
+
+applyAudioMode()
+
+pd.getSystemMenu():addOptionsMenuItem("audio", AUDIO_MODE_OPTIONS, selectedAudioMode, function(newAudioMode)
+    selectedAudioMode = newAudioMode
+    applyAudioMode()
+    markProgressChanged()
+    saveProgress()
+end)
 
 -- Player variables
 local playerScore = 0
@@ -1144,6 +1213,8 @@ local function resetGame()
     boatEngineSoundRate = TUNING.ENGINE_MIN_WORLD_RATE
     boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
     waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
+    gameMusicRate = TUNING.MUSIC_NORMAL_RATE
+    gameMusicPlayer:stop()
     hudMessage = nil
     hudMessageRemainingMilliseconds = 0
 
@@ -1341,6 +1412,7 @@ function playdate.update()
         interpolatedWorldVelocity
     )
     updateWaterFlowSound(interpolatedWorldVelocity)
+    updateGameMusic(interpolatedWorldVelocity)
     playerX += movementVelocityX + waterStreamVelocity
     playerY += movementVelocityY
 
