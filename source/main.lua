@@ -11,6 +11,7 @@ import "ShieldCollectable"
 import "ShrinkCollectable"
 import "SpeedReductionCollectable"
 import "InteractiveSpawn"
+import "DecorationManager"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -49,6 +50,9 @@ local shieldImage = pdg.image.new("images/Shield")
 local shrinkImage = pdg.image.new("images/Srink")
 local speedReductionImage = pdg.image.new("images/SpeedReduction")
 local dashImage = pdg.image.new("images/Dash")
+local shieldCollectableImage = pdg.image.new("images/ShieldNoFrame")
+local shrinkCollectableImage = pdg.image.new("images/SrinkNoFrame")
+local speedReductionCollectableImage = pdg.image.new("images/SpeedReductionNoFrame")
 local coinPickupSoundPlayer = pds.sampleplayer.new("sounds/CoinPickup")
 local dashSoundPlayer = pds.sampleplayer.new("sounds/Dash")
 local shrinkSoundPlayer = pds.sampleplayer.new("sounds/Shrink")
@@ -353,7 +357,7 @@ local waterScrollX = 0
 
 for i = 1, 2 do
     local waterSprite = pdg.sprite.new(waterImage)
-    waterSprite:moveTo(-(i - 1) * waterImageWidth, 140)
+    waterSprite:moveTo(-(i - 1) * waterImageWidth, TUNING.WATER_BACKGROUND_Y_OFFSET)
     waterSprite:setZIndex(-1000)
     waterSprite:add()
     waterSprites[i] = waterSprite
@@ -369,7 +373,8 @@ local rockImageWidths = {}
 local rockImageHeights = {}
 local rockSprites = {}
 local collectableSprites = {}
-local interactableObjectGroups = { rockSprites, collectableSprites }
+local decorationSprites = {}
+local interactableObjectGroups = { rockSprites, collectableSprites, decorationSprites }
 
 for i = 1, #rockImages do
     rockImageWidths[i], rockImageHeights[i] = rockImages[i]:getSize()
@@ -493,10 +498,10 @@ local function onSpeedReductionCollected()
 end
 
 collectablesByType.coin = CoinCollectable(coinImagetable, onCoinCollected)
-collectablesByType.shield = ShieldCollectable(shieldImage, onShieldCollected)
-collectablesByType.shrink = ShrinkCollectable(shrinkImage, onShrinkCollected)
+collectablesByType.shield = ShieldCollectable(shieldCollectableImage, onShieldCollected)
+collectablesByType.shrink = ShrinkCollectable(shrinkCollectableImage, onShrinkCollected)
 collectablesByType.speedReduction =
-    SpeedReductionCollectable(speedReductionImage, onSpeedReductionCollected)
+    SpeedReductionCollectable(speedReductionCollectableImage, onSpeedReductionCollected)
 
 for i = 1, #collectableTypes do
     local collectableType = collectableTypes[i]
@@ -574,6 +579,13 @@ local function resetCollectables()
         resetCollectableSpawnCountdown(collectableType)
     end
 end
+
+local decorationManager = DecorationManager.new(
+    TUNING.DECORATION_SPAWN_CONFIG,
+    interactableObjectGroups,
+    decorationSprites,
+    TUNING
+)
 
 local function updatePlayerScale(elapsedMilliseconds)
     if shrinkRemainingMilliseconds ~= nil then
@@ -1246,10 +1258,11 @@ local function resetGame()
     )
     playerSprite:moveTo(playerX, playerY)
     waterScrollX = 0
-    waterSprites[1]:moveTo(0, 140)
-    waterSprites[2]:moveTo(-waterImageWidth, 140)
+    waterSprites[1]:moveTo(0, TUNING.WATER_BACKGROUND_Y_OFFSET)
+    waterSprites[2]:moveTo(-waterImageWidth, TUNING.WATER_BACKGROUND_Y_OFFSET)
     clearWakeLines()
     resetCollectables()
+    decorationManager:reset()
 
     for i = 1, TUNING.MAX_ROCKS do
         rockSprites[i].active = false
@@ -1357,8 +1370,8 @@ function playdate.update()
     -- Both tiles derive from one phase, so rounding and seam recycling cannot
     -- make them pause, separate, or briefly move in opposite directions.
     waterScrollX = (waterScrollX + worldDisplacement) % waterImageWidth
-    waterSprites[1]:moveTo(waterScrollX, 140)
-    waterSprites[2]:moveTo(waterScrollX - waterImageWidth, 140)
+    waterSprites[1]:moveTo(waterScrollX, TUNING.WATER_BACKGROUND_Y_OFFSET)
+    waterSprites[2]:moveTo(waterScrollX - waterImageWidth, TUNING.WATER_BACKGROUND_Y_OFFSET)
 
     for i = 1, TUNING.MAX_ROCKS do
         local rock = rockSprites[i]
@@ -1373,6 +1386,7 @@ function playdate.update()
         end
     end
 
+    decorationManager:update(elapsedMilliseconds, worldDisplacement, interpolatedWorldVelocity)
     updateCollectables(elapsedMilliseconds, worldDisplacement)
     updateRockExplosions(elapsedMilliseconds, worldDisplacement)
 
@@ -1436,7 +1450,7 @@ function playdate.update()
     local scaledPlayerWidth = playerImageWidth * currentPlayerScale
     local scaledPlayerHeight = playerImageHeight * currentPlayerScale
     playerX = math.clamp(playerX, scaledPlayerWidth / 2, 400 - scaledPlayerWidth / 3)
-    playerY = math.clamp(playerY, playerImageHeight / 2, 240 - scaledPlayerHeight / 3)
+    playerY = math.clamp(playerY, 10 + (playerImageHeight / 2), 240 - scaledPlayerHeight / 3)
     playerSprite:moveTo(playerX, playerY)
     updateDashInertia(elapsedMilliseconds)
 

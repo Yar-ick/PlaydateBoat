@@ -30,6 +30,7 @@ GameplayTuning = {
     WATER_FLOW_MAX_RATE = 1.35,
     WATER_FLOW_VOLUME = 0.50,
     WATER_FLOW_RATE_INTERPOLATION_SPEED = 0.08,
+    WATER_BACKGROUND_Y_OFFSET = 125,
 
     MUSIC_NORMAL_RATE = 1.00,
     MUSIC_MAX_RATE = 1.10,
@@ -48,10 +49,14 @@ GameplayTuning = {
     INTERACTIVE_SPAWN_ATTEMPTS = 200,
     ROCK_SPAWN_MINIMUM_X = -600,
     COLLECTABLE_SPAWN_MINIMUM_X = -160,
+    DECORATION_SPAWN_MINIMUM_X = -300,
+    -- Once this speed is reached, decoration spawning stays disabled until restart.
+    DECORATION_STOP_SPAWN_WORLD_VELOCITY = 4,
     WORLD_SPAWN_MAXIMUM_Y = 240,
     WORLD_SPAWN_MINIMUM_Y = 40,
 
     ROCK_Z_INDEX = 0,
+    DECORATION_Z_INDEX = -10,
     ROCK_EXPLOSION_Z_INDEX = 10,
     COLLECTABLE_Z_INDEX = 20,
     PLAYER_Z_INDEX = 30,
@@ -77,6 +82,26 @@ GameplayTuning = {
             spawnChancePercent = 20,
             minimumIntervalMs = 12000,
             maximumIntervalMs = 20000
+        }
+    },
+
+    -- Spawn frequency, chance, and pool size can be tuned independently per type.
+    DECORATION_SPAWN_CONFIG = {
+        {
+            name = "bottle",
+            imagePath = "images/BottleDecoration",
+            spawnChancePercent = 30,
+            minimumIntervalMs = 1800,
+            maximumIntervalMs = 4000,
+            maximumActive = 3
+        },
+        {
+            name = "cattail",
+            imagePath = "images/CattailDecoration",
+            spawnChancePercent = 90,
+            minimumIntervalMs = 2000,
+            maximumIntervalMs = 4000,
+            maximumActive = 5
         }
     },
 
