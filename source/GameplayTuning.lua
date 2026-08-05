@@ -6,6 +6,9 @@ GameplayTuning = {
     WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.18,
     VELOCITY_INCREASE_INTERVAL_MS = 5000,
     MIN_WORLD_VELOCITY = 0.4,
+    REFERENCE_FRAME_DURATION_MS = 1000 / 30,
+    -- Catch up after an uneven frame, but never apply a large pause/resume jump.
+    MAX_GAMEPLAY_FRAME_DURATION_MS = 1000 / 15,
 
     DASH_HOLD_THRESHOLD_MS = 200,
     DASH_INITIAL_VELOCITY = 9,

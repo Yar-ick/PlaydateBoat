@@ -35,6 +35,7 @@ local GameState = {
 }
 
 local BoatGameState = GameState.ALIVE
+local lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
 
 local playerImagetable = pdg.imagetable.new("images/Boat")
 local playerImagetableSize = playerImagetable:getLength()
@@ -348,6 +349,7 @@ local interpolatedWorldVelocity = worldVelocity
 local waterImage = pdg.image.new("images/WaterBackground")
 local waterImageWidth = waterImage:getSize()
 local waterSprites = {}
+local waterScrollX = 0
 
 for i = 1, 2 do
     local waterSprite = pdg.sprite.new(waterImage)
@@ -535,14 +537,14 @@ local function spawnCollectable(collectable)
     return true
 end
 
-local function updateCollectables(elapsedMilliseconds)
+local function updateCollectables(elapsedMilliseconds, worldDisplacement)
     for i = 1, #collectableTypes do
         local collectableType = collectableTypes[i]
         local collectable = collectablesByType[collectableType]
 
         if collectable.active then
             if collectable.isCollecting == false then
-                collectable:moveBy(interpolatedWorldVelocity, 0)
+                collectable:moveBy(worldDisplacement, 0)
 
                 if collectable.x - collectable.imageWidth / 2 > 400 then
                     collectable:despawn()
@@ -905,7 +907,13 @@ local function spawnWakeLine(engineX, engineY, wakeAngle, speedMultiplier)
     line.width = math.random(1, 2)
 end
 
-local function updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle, isDashing)
+local function updateWakeLines(
+    currentVelocityAngle,
+    playerSpriteIndexFromAngle,
+    isDashing,
+    worldDisplacement,
+    frameScale
+)
     for i = 1, wakeLinePoolSize do
         local line = wakeLinePool[i]
 
@@ -915,9 +923,9 @@ local function updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle,
             if lifeProgress >= 1 then
                 line.active = false
             else
-                line.x += line.dx * line.speed + interpolatedWorldVelocity
-                line.y += line.dy * line.speed
-                line.age += 1
+                line.x += line.dx * line.speed * frameScale + worldDisplacement
+                line.y += line.dy * line.speed * frameScale
+                line.age += frameScale
             end
         end
     end
@@ -980,10 +988,10 @@ local function startRockExplosion(x, y)
     }
 end
 
-local function updateRockExplosions(elapsedMilliseconds)
+local function updateRockExplosions(elapsedMilliseconds, worldDisplacement)
     for i = #rockExplosions, 1, -1 do
         local rockExplosion = rockExplosions[i]
-        rockExplosion.sprite:moveBy(interpolatedWorldVelocity, 0)
+        rockExplosion.sprite:moveBy(worldDisplacement, 0)
         rockExplosion.elapsedMilliseconds += elapsedMilliseconds
 
         local nextFrame = math.floor(rockExplosion.elapsedMilliseconds / 50) + 1
@@ -1237,6 +1245,7 @@ local function resetGame()
         playerCollisionHeight
     )
     playerSprite:moveTo(playerX, playerY)
+    waterScrollX = 0
     waterSprites[1]:moveTo(0, 140)
     waterSprites[2]:moveTo(-waterImageWidth, 140)
     clearWakeLines()
@@ -1261,6 +1270,8 @@ function playdate.crankDocked()
 end
 
 function playdate.crankUndocked()
+    lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
+
     if BoatGameState == GameState.ALIVE then
         velocityIncreaseTimer:start()
         startGameplayLoopSounds()
@@ -1273,6 +1284,8 @@ function playdate.gameWillPause()
 end
 
 function playdate.gameWillResume()
+    lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
+
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
         startGameplayLoopSounds()
     end
@@ -1288,8 +1301,6 @@ function playdate.deviceWillSleep()
     stopGameplayLoopSounds()
 end
 
-local lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
-
 function playdate.update()
     local currentTimeMilliseconds = pd.getCurrentTimeMilliseconds()
     local elapsedMilliseconds = currentTimeMilliseconds - lastUpdateTimeMilliseconds
@@ -1298,6 +1309,8 @@ function playdate.update()
     if elapsedMilliseconds < 0 then
         elapsedMilliseconds = 0
     end
+
+    elapsedMilliseconds = math.min(elapsedMilliseconds, TUNING.MAX_GAMEPLAY_FRAME_DURATION_MS)
 
     pd.timer.updateTimers()
 
@@ -1333,27 +1346,25 @@ function playdate.update()
         return
     end
 
+    local frameScale = elapsedMilliseconds / TUNING.REFERENCE_FRAME_DURATION_MS
+    local worldVelocityInterpolationAmount =
+        1 - (1 - worldVelocityInterpolationSpeed) ^ frameScale
     interpolatedWorldVelocity +=
-        (worldVelocity - interpolatedWorldVelocity) * worldVelocityInterpolationSpeed
+        (worldVelocity - interpolatedWorldVelocity) * worldVelocityInterpolationAmount
+    local worldDisplacement = interpolatedWorldVelocity * frameScale
     startGameplayLoopSounds()
 
-    for i = 1, 2 do
-        waterSprites[i]:moveBy(interpolatedWorldVelocity, 0)
-    end
-
-    for i = 1, 2 do
-        local waterSprite = waterSprites[i]
-        if waterSprite.x - waterImageWidth / 2 >= 400 then
-            local otherWaterSprite = waterSprites[(i % 2) + 1]
-            waterSprite:moveTo(otherWaterSprite.x - waterImageWidth, 140)
-        end
-    end
+    -- Both tiles derive from one phase, so rounding and seam recycling cannot
+    -- make them pause, separate, or briefly move in opposite directions.
+    waterScrollX = (waterScrollX + worldDisplacement) % waterImageWidth
+    waterSprites[1]:moveTo(waterScrollX, 140)
+    waterSprites[2]:moveTo(waterScrollX - waterImageWidth, 140)
 
     for i = 1, TUNING.MAX_ROCKS do
         local rock = rockSprites[i]
 
         if rock.active then
-            rock:moveBy(interpolatedWorldVelocity, 0)
+            rock:moveBy(worldDisplacement, 0)
 
             if rock.x - rock.imageWidth / 2 > 400 then
                 rock.active = false
@@ -1362,8 +1373,8 @@ function playdate.update()
         end
     end
 
-    updateCollectables(elapsedMilliseconds)
-    updateRockExplosions(elapsedMilliseconds)
+    updateCollectables(elapsedMilliseconds, worldDisplacement)
+    updateRockExplosions(elapsedMilliseconds, worldDisplacement)
 
     -- Recycle rocks after collectables move/spawn so the shared overlap check sees
     -- every interactable object at its final position for this frame.
@@ -1392,11 +1403,13 @@ function playdate.update()
     targetYVelocity =
         math.sin(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
 
-    xVelocity += (targetXVelocity - xVelocity) * velocityInterpolationSpeed
-    yVelocity += (targetYVelocity - yVelocity) * velocityInterpolationSpeed
+    local playerVelocityInterpolationAmount =
+        1 - (1 - velocityInterpolationSpeed) ^ frameScale
+    xVelocity += (targetXVelocity - xVelocity) * playerVelocityInterpolationAmount
+    yVelocity += (targetYVelocity - yVelocity) * playerVelocityInterpolationAmount
 
-    local movementVelocityX = xVelocity + dashVelocityX
-    local movementVelocityY = yVelocity + dashVelocityY
+    local movementVelocityX = (xVelocity + dashVelocityX) * frameScale
+    local movementVelocityY = (yVelocity + dashVelocityY) * frameScale
     local currentVelocityAngle =
         math.normalizeAngle(math.deg(math.atan2(movementVelocityY, movementVelocityX)) + 90)
     local playerSpriteIndexFromAngle =
@@ -1413,7 +1426,7 @@ function playdate.update()
     )
     updateWaterFlowSound(interpolatedWorldVelocity)
     updateGameMusic(interpolatedWorldVelocity)
-    playerX += movementVelocityX + waterStreamVelocity
+    playerX += movementVelocityX + waterStreamVelocity * frameScale
     playerY += movementVelocityY
 
     local actualX, actualY, collisions, length = playerSprite:moveWithCollisions(playerX, playerY)
@@ -1438,7 +1451,13 @@ function playdate.update()
         startExplosion(playerX, playerY)
         playSoundOneShot(boatExplosionSoundPlayer)
     else
-        updateWakeLines(currentVelocityAngle, playerSpriteIndexFromAngle, isDashing)
+        updateWakeLines(
+            currentVelocityAngle,
+            playerSpriteIndexFromAngle,
+            isDashing,
+            worldDisplacement,
+            frameScale
+        )
     end
 
     pdg.sprite.update()
