@@ -923,8 +923,7 @@ local function updateWakeLines(
     currentVelocityAngle,
     playerSpriteIndexFromAngle,
     isDashing,
-    worldDisplacement,
-    frameScale
+    worldDisplacement
 )
     for i = 1, wakeLinePoolSize do
         local line = wakeLinePool[i]
@@ -935,9 +934,9 @@ local function updateWakeLines(
             if lifeProgress >= 1 then
                 line.active = false
             else
-                line.x += line.dx * line.speed * frameScale + worldDisplacement
-                line.y += line.dy * line.speed * frameScale
-                line.age += frameScale
+                line.x += line.dx * line.speed + worldDisplacement
+                line.y += line.dy * line.speed
+                line.age += 1
             end
         end
     end
@@ -1359,12 +1358,12 @@ function playdate.update()
         return
     end
 
-    local frameScale = elapsedMilliseconds / TUNING.REFERENCE_FRAME_DURATION_MS
-    local worldVelocityInterpolationAmount =
-        1 - (1 - worldVelocityInterpolationSpeed) ^ frameScale
     interpolatedWorldVelocity +=
-        (worldVelocity - interpolatedWorldVelocity) * worldVelocityInterpolationAmount
-    local worldDisplacement = interpolatedWorldVelocity * frameScale
+        (worldVelocity - interpolatedWorldVelocity) * worldVelocityInterpolationSpeed
+    local worldDisplacement = math.max(
+        TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
+        math.floor(interpolatedWorldVelocity + 0.5)
+    )
     startGameplayLoopSounds()
 
     -- Both tiles derive from one phase, so rounding and seam recycling cannot
@@ -1417,13 +1416,11 @@ function playdate.update()
     targetYVelocity =
         math.sin(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
 
-    local playerVelocityInterpolationAmount =
-        1 - (1 - velocityInterpolationSpeed) ^ frameScale
-    xVelocity += (targetXVelocity - xVelocity) * playerVelocityInterpolationAmount
-    yVelocity += (targetYVelocity - yVelocity) * playerVelocityInterpolationAmount
+    xVelocity += (targetXVelocity - xVelocity) * velocityInterpolationSpeed
+    yVelocity += (targetYVelocity - yVelocity) * velocityInterpolationSpeed
 
-    local movementVelocityX = (xVelocity + dashVelocityX) * frameScale
-    local movementVelocityY = (yVelocity + dashVelocityY) * frameScale
+    local movementVelocityX = xVelocity + dashVelocityX
+    local movementVelocityY = yVelocity + dashVelocityY
     local currentVelocityAngle =
         math.normalizeAngle(math.deg(math.atan2(movementVelocityY, movementVelocityX)) + 90)
     local playerSpriteIndexFromAngle =
@@ -1440,7 +1437,7 @@ function playdate.update()
     )
     updateWaterFlowSound(interpolatedWorldVelocity)
     updateGameMusic(interpolatedWorldVelocity)
-    playerX += movementVelocityX + waterStreamVelocity * frameScale
+    playerX += movementVelocityX + waterStreamVelocity
     playerY += movementVelocityY
 
     local actualX, actualY, collisions, length = playerSprite:moveWithCollisions(playerX, playerY)
@@ -1469,8 +1466,7 @@ function playdate.update()
             currentVelocityAngle,
             playerSpriteIndexFromAngle,
             isDashing,
-            worldDisplacement,
-            frameScale
+            worldDisplacement
         )
     end
 
