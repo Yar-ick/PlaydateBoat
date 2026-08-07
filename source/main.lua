@@ -42,6 +42,7 @@ local playerImagetable = pdg.imagetable.new("images/Boat")
 local playerImagetableSize = playerImagetable:getLength()
 local explosionImagetable = pdg.imagetable.new("images/Explosion")
 local rockExplosionImagetable = pdg.imagetable.new("images/RockExplosion")
+local backgroundHUDImage = pdg.image.new("images/BackgroundHUD")
 local speedometerImage = pdg.image.new("images/Speedometer")
 local speedometerNeedleImage = pdg.image.new("images/SpeedometerNeedle")
 local coinImagetable = pdg.imagetable.new("images/Coin")
@@ -318,6 +319,8 @@ local currentPlayerScale = 1
 local targetPlayerScale = 1
 local shrinkRemainingMilliseconds = nil
 local shrinkDurationMilliseconds = nil
+local shrinkUiProgress = 0
+local shrinkUiIsFilling = false
 local shieldHitsRemaining = 0
 local bButtonHeldMilliseconds = 0
 local bButtonIsBeingHeld = false
@@ -480,7 +483,10 @@ local function onCoinCollected()
 end
 
 local function onShieldCollected()
-    shieldHitsRemaining += TUNING.SHIELD_HITS_BY_LEVEL[shieldUpgradeLevel + 1]
+    shieldHitsRemaining = math.min(
+        TUNING.MAX_SHIELD_HITS,
+        shieldHitsRemaining + TUNING.SHIELD_HITS_BY_LEVEL[shieldUpgradeLevel + 1]
+    )
     playSoundOneShot(shieldSoundPlayer)
 end
 
@@ -488,6 +494,8 @@ local function onShrinkCollected()
     shrinkDurationMilliseconds = TUNING.SHRINK_DURATION_MS_BY_LEVEL[shrinkUpgradeLevel + 1]
     targetPlayerScale = TUNING.SHRUNK_PLAYER_SCALE
     shrinkRemainingMilliseconds = shrinkDurationMilliseconds
+    shrinkUiProgress = 0
+    shrinkUiIsFilling = true
     playSoundOneShot(shrinkSoundPlayer)
 end
 
@@ -589,13 +597,33 @@ local decorationManager = DecorationManager.new(
 
 local function updatePlayerScale(elapsedMilliseconds)
     if shrinkRemainingMilliseconds ~= nil then
-        shrinkRemainingMilliseconds -= elapsedMilliseconds
+        if shrinkUiIsFilling then
+            shrinkUiProgress = math.min(
+                1,
+                shrinkUiProgress + elapsedMilliseconds / TUNING.SHRINK_UI_FILL_DURATION_MS
+            )
 
-        if shrinkRemainingMilliseconds <= 0 then
-            shrinkRemainingMilliseconds = nil
-            shrinkDurationMilliseconds = nil
-            targetPlayerScale = 1
+            if shrinkUiProgress >= 1 then
+                shrinkUiProgress = 1
+                shrinkUiIsFilling = false
+            end
+        else
+            shrinkRemainingMilliseconds -= elapsedMilliseconds
+            shrinkUiProgress = math.max(
+                0,
+                shrinkRemainingMilliseconds / shrinkDurationMilliseconds
+            )
+
+            if shrinkRemainingMilliseconds <= 0 then
+                shrinkRemainingMilliseconds = nil
+                shrinkDurationMilliseconds = nil
+                shrinkUiProgress = 0
+                targetPlayerScale = 1
+            end
         end
+    else
+        shrinkUiProgress = 0
+        shrinkUiIsFilling = false
     end
 
     local scaleDifference = targetPlayerScale - currentPlayerScale
@@ -1067,8 +1095,9 @@ local function updateSpeedometerNeedle(dashSpeed)
 end
 
 local function drawHud()
-    local speedometerX <const> = 5
-    local speedometerY <const> = 1
+    backgroundHUDImage:draw(0, 0)
+    local speedometerX <const> = 15
+    local speedometerY <const> = 12
     local speedometerWidth, speedometerHeight = speedometerImage:getSize()
     speedometerImage:draw(speedometerX, speedometerY)
     speedometerNeedleImage:drawRotated(
@@ -1076,47 +1105,36 @@ local function drawHud()
         speedometerY + speedometerHeight / 2,
         speedometerNeedleAngle
     )
-    local nextAbilityX = speedometerX + speedometerWidth + 5
+    local abilitiesY = 18
 
-    local dashImageWidth = drawVerticalProgressIcon(
+    drawVerticalProgressIcon(
         dashImage,
-        nextAbilityX,
-        0,
+        60,
+        abilitiesY,
         dashUiProgress
     )
-    nextAbilityX += dashImageWidth + 5
 
-    if shrinkRemainingMilliseconds ~= nil and shrinkDurationMilliseconds ~= nil then
-        local shrinkProgress = shrinkRemainingMilliseconds / shrinkDurationMilliseconds
-        local shrinkImageWidth = drawVerticalProgressIcon(
-            shrinkImage,
-            nextAbilityX,
-            0,
-            shrinkProgress
-        )
-        nextAbilityX += shrinkImageWidth + 5
-    end
+    drawVerticalProgressIcon(shrinkImage, 92, abilitiesY, shrinkUiProgress)
 
-    if shieldHitsRemaining > 0 then
-        shieldImage:draw(nextAbilityX, 0)
-        pdg.drawText("x" .. shieldHitsRemaining, nextAbilityX + 33, 7)
-    end
+    local shieldProgress = shieldHitsRemaining / TUNING.MAX_SHIELD_HITS
+    drawVerticalProgressIcon(shieldImage, 124, abilitiesY, shieldProgress)
+    -- pdg.drawText("x" .. shieldHitsRemaining, 124 + 20, abilitiesY + 2)
 
     local scoreText = "" .. playerScore
     local scoreTextWidth = pdg.getTextSize(scoreText)
-    local scoreX = 395 - scoreTextWidth
+    local scoreX = 400 - scoreTextWidth - 18
     local starImageWidth = starImage:getSize()
     local starX = scoreX - starImageWidth - 5
-    starImage:draw(starX, 1)
-    pdg.drawText(scoreText, scoreX, 7)
+    starImage:draw(starX, 17)
+    pdg.drawText(scoreText, scoreX, 21)
 
     local coinText = tostring(playerCoins)
     local coinTextWidth = pdg.getTextSize(coinText)
     local coinImage = coinImagetable:getImage(1)
     local coinImageWidth = coinImage:getSize()
     local coinX = starX - coinImageWidth - coinTextWidth - 10
-    coinImage:draw(coinX, 5)
-    pdg.drawText(coinText, coinX + coinImageWidth + 2, 7)
+    coinImage:draw(coinX, 18)
+    pdg.drawText(coinText, coinX + coinImageWidth + 2, 21)
 
     if hudMessage ~= nil then
         pdg.drawText(hudMessage, 10, 216)
@@ -1217,6 +1235,8 @@ local function resetGame()
     shieldHitsRemaining = 0
     shrinkRemainingMilliseconds = nil
     shrinkDurationMilliseconds = nil
+    shrinkUiProgress = 0
+    shrinkUiIsFilling = false
     currentPlayerScale = 1
     targetPlayerScale = 1
     bButtonHeldMilliseconds = 0
@@ -1322,7 +1342,7 @@ function playdate.update()
         elapsedMilliseconds = 0
     end
 
-    elapsedMilliseconds = math.min(elapsedMilliseconds, TUNING.MAX_GAMEPLAY_FRAME_DURATION_MS)
+    -- elapsedMilliseconds = math.min(elapsedMilliseconds, TUNING.MAX_GAMEPLAY_FRAME_DURATION_MS)
 
     pd.timer.updateTimers()
 
@@ -1447,7 +1467,11 @@ function playdate.update()
     local scaledPlayerWidth = playerImageWidth * currentPlayerScale
     local scaledPlayerHeight = playerImageHeight * currentPlayerScale
     playerX = math.clamp(playerX, scaledPlayerWidth / 2, 400 - scaledPlayerWidth / 3)
-    playerY = math.clamp(playerY, 10 + (playerImageHeight / 2), 240 - scaledPlayerHeight / 3)
+    playerY = math.clamp(
+        playerY,
+        TUNING.HUD_HEIGHT + scaledPlayerHeight / 2,
+        240 - scaledPlayerHeight / 3
+    )
     playerSprite:moveTo(playerX, playerY)
     updateDashInertia(elapsedMilliseconds)
 

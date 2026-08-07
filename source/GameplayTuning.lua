@@ -39,6 +39,8 @@ GameplayTuning = {
     MUSIC_VOLUME = 0.75,
     MUSIC_RATE_INTERPOLATION_SPEED = 0.04,
 
+    HUD_HEIGHT = 30,
+
     SPEEDOMETER_MIN_ANGLE = -120,
     SPEEDOMETER_MAX_ANGLE = 120,
     SPEEDOMETER_WORLD_SPEED_WEIGHT = 0.70,
@@ -55,7 +57,7 @@ GameplayTuning = {
     -- Once this speed is reached, decoration spawning stays disabled until restart.
     DECORATION_STOP_SPAWN_WORLD_VELOCITY = 4,
     WORLD_SPAWN_MAXIMUM_Y = 240,
-    WORLD_SPAWN_MINIMUM_Y = 40,
+    WORLD_SPAWN_MINIMUM_Y = 60,
 
     ROCK_Z_INDEX = 0,
     DECORATION_Z_INDEX = -10,
@@ -109,7 +111,9 @@ GameplayTuning = {
 
     -- Level 3 is the third and final purchased upgrade (levels start at 0).
     SHIELD_HITS_BY_LEVEL = { 1, 2, 3, 5 },
+    MAX_SHIELD_HITS = 10,
     SHRINK_DURATION_MS_BY_LEVEL = { 5000, 7000, 10000, 15000 },
+    SHRINK_UI_FILL_DURATION_MS = 250,
     SPEED_REDUCTION_BY_LEVEL = { 0.50, 0.75, 1.00, 1.50 },
     DASH_COOLDOWN_MS_BY_LEVEL = { 8000, 7500, 5000, 2500 },
 

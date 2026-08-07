@@ -1,7 +1,7 @@
 local gfx <const> = playdate.graphics
 local COLLECTION_SCALE_STEP <const> = 0.14
 local IDLE_PULSE_MAX_SCALE <const> = 1.12
-local IDLE_PULSE_PHASE_STEP <const> = 0.12
+local IDLE_PULSE_PHASE_STEP <const> = 0.2
 
 class("Collectable").extends(gfx.sprite)
 
