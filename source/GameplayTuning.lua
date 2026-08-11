@@ -1,6 +1,23 @@
 -- Central gameplay and presentation tuning. Keeping these values in one table
 -- avoids consuming a separate local-variable slot for every setting in main.lua.
 GameplayTuning = {
+    MAIN_MENU_BOAT_X = 225,
+    MAIN_MENU_BOAT_Y = 205,
+    MAIN_MENU_BOAT_FRAME_INDEX = 25,
+    MAIN_MENU_BACKGROUND_CENTER_Y = 120,
+    MAIN_MENU_BACKGROUND_OFFSCREEN_Y = -120,
+    MAIN_MENU_WATER_CENTER_Y = 270,
+    GAMEPLAY_ENTRY_BOAT_X = 225,
+    GAMEPLAY_ENTRY_BOAT_Y = 130,
+    MENU_LAUNCH_BOAT_DIP_Y = 235,
+    MENU_LAUNCH_DURATION_MS = 1800,
+    MENU_RETURN_DURATION_MS = 1800,
+    CRASH_REWIND_SPEED_PIXELS_PER_SECOND = 180,
+    CRASH_REWIND_ACCELERATION_MS = 450,
+    CRASH_RETURN_DELAY_MS = 2000,
+    START_CRANK_MOVEMENT_DEGREES = 5,
+    START_ROTATION_DURATION_MS = 700,
+
     INITIAL_WORLD_VELOCITY = 1,
     MAX_WORLD_VELOCITY = 8,
     WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.18,
@@ -99,6 +116,7 @@ GameplayTuning = {
     ROCK_EXPLOSION_Z_INDEX = 10,
     COLLECTABLE_Z_INDEX = 20,
     PLAYER_Z_INDEX = 30,
+    MAIN_MENU_Z_INDEX = -900,
 
     -- Each inactive collectable waits for its interval and then rolls its chance.
     COLLECTABLE_SPAWN_CONFIG = {

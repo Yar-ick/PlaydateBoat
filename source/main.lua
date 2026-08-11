@@ -32,17 +32,23 @@ local secondsSinceEpoch = pd.getSecondsSinceEpoch()
 math.randomseed(secondsSinceEpoch)
 
 local GameState = {
-    ALIVE = 1,
-    CRASHED = 2
+    MAIN_MENU = 1,
+    LAUNCHING = 2,
+    WAITING_FOR_CRANK = 3,
+    ALIGNING_TO_CRANK = 4,
+    ALIVE = 5,
+    CRASH_REWIND = 6,
+    RETURNING_TO_MENU = 7
 }
 
-local BoatGameState = GameState.ALIVE
+local BoatGameState = GameState.MAIN_MENU
 local lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
 
 local playerImagetable = pdg.imagetable.new("images/Boat")
 local playerImagetableSize = playerImagetable:getLength()
 local explosionImagetable = pdg.imagetable.new("images/Explosion")
 local rockExplosionImagetable = pdg.imagetable.new("images/RockExplosion")
+local mainMenuBackgroundImage = pdg.image.new("images/MainMenuBackground")
 local backgroundHUDImage = pdg.image.new("images/BackgroundHUD")
 local speedometerImage = pdg.image.new("images/Speedometer")
 local speedometerNeedleImage = pdg.image.new("images/SpeedometerNeedle")
@@ -62,7 +68,10 @@ local boatEngineSoundRate = TUNING.ENGINE_MIN_WORLD_RATE
 local boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
 local waterFlowSoundPlayer = pds.sampleplayer.new("sounds/WaterFlow")
 local waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
-local gameMusicPlayer = pds.fileplayer.new("sounds/Banners in the Wind")
+local musicPlayers = {
+    menu = pds.fileplayer.new("sounds/The Forgotten Grove"),
+    gameplay = pds.fileplayer.new("sounds/Banners in the Wind")
+}
 local gameMusicRate = TUNING.MUSIC_NORMAL_RATE
 local sfxChannel = pds.channel.new()
 local musicChannel = pds.channel.new()
@@ -77,7 +86,8 @@ sfxChannel:addSource(speedReductionSoundPlayer)
 sfxChannel:addSource(boatExplosionSoundPlayer)
 sfxChannel:addSource(boatEngineSoundPlayer)
 sfxChannel:addSource(waterFlowSoundPlayer)
-musicChannel:addSource(gameMusicPlayer)
+musicChannel:addSource(musicPlayers.menu)
+musicChannel:addSource(musicPlayers.gameplay)
 
 for i = 1, 4 do
     rockExplosionSoundPlayers[i] = pds.sampleplayer.new("sounds/RockExplosion")
@@ -174,17 +184,37 @@ local function updateWaterFlowSound(currentWorldVelocity)
     waterFlowSoundPlayer:setRate(waterFlowSoundRate)
 end
 
-local function startGameMusic()
-    if gameMusicPlayer:isPlaying() == false then
-        gameMusicPlayer:setRate(gameMusicRate)
-        gameMusicPlayer:setVolume(TUNING.MUSIC_VOLUME)
-        gameMusicPlayer:play(0)
+local function startMenuMusic()
+    if musicPlayers.gameplay:isPlaying() then
+        musicPlayers.gameplay:stop()
+    end
+
+    if musicPlayers.menu:isPlaying() == false then
+        musicPlayers.menu:setRate(TUNING.MUSIC_NORMAL_RATE)
+        musicPlayers.menu:setVolume(TUNING.MUSIC_VOLUME)
+        musicPlayers.menu:play(0)
+    end
+end
+
+local function startGameplayMusic()
+    if musicPlayers.menu:isPlaying() then
+        musicPlayers.menu:stop()
+    end
+
+    if musicPlayers.gameplay:isPlaying() == false then
+        musicPlayers.gameplay:setRate(gameMusicRate)
+        musicPlayers.gameplay:setVolume(TUNING.MUSIC_VOLUME)
+        musicPlayers.gameplay:play(0)
     end
 end
 
 local function pauseGameMusic()
-    if gameMusicPlayer:isPlaying() then
-        gameMusicPlayer:pause()
+    if musicPlayers.menu:isPlaying() then
+        musicPlayers.menu:pause()
+    end
+
+    if musicPlayers.gameplay:isPlaying() then
+        musicPlayers.gameplay:pause()
     end
 end
 
@@ -200,13 +230,13 @@ local function updateGameMusic(currentWorldVelocity)
 
     gameMusicRate +=
         (targetRate - gameMusicRate) * TUNING.MUSIC_RATE_INTERPOLATION_SPEED
-    gameMusicPlayer:setRate(gameMusicRate)
+    musicPlayers.gameplay:setRate(gameMusicRate)
 end
 
 local function startGameplayLoopSounds()
     startBoatEngineSound()
     startWaterFlowSound()
-    startGameMusic()
+    startGameplayMusic()
 end
 
 local function stopGameplayLoopSounds()
@@ -215,9 +245,6 @@ local function stopGameplayLoopSounds()
     pauseGameMusic()
 end
 
-local CRASH_MESSAGE_TEXT <const> = "*You crashed!*\n*Press A to restart*"
-local CRASH_MESSAGE_PADDING <const> = 8
-local crashMessageWidth, crashMessageHeight = pdg.getTextSize(CRASH_MESSAGE_TEXT)
 local explosionX, explosionY = 0, 0
 local explosionAnimation = nil
 local explosionFrameDelay = 100
@@ -325,7 +352,7 @@ local playerScore = 0
 local playerScoreStep = 10
 local playerVelocity = 2
 local playerSpeedMode = 1  -- 0: No speed, 1: Normal speed, 2: Fast speed
-local playerStartX, playerStartY = 200, 130
+local playerStartX, playerStartY = TUNING.GAMEPLAY_ENTRY_BOAT_X, TUNING.GAMEPLAY_ENTRY_BOAT_Y
 local playerX, playerY = playerStartX, playerStartY
 local currentPlayerScale = 1
 local targetPlayerScale = 1
@@ -344,6 +371,10 @@ local dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUp
 local dashUiProgress = 1
 local dashUiIsDraining = false
 local speedometerNeedleAngle = TUNING.SPEEDOMETER_MIN_ANGLE
+local presentationElapsedMilliseconds = 0
+local crashReturnDelayElapsedMilliseconds = 0
+local waitingCrankMovement = 0
+local startRotationAngle = 180
 
 local scoreTimer = pd.timer.new(1000, function()
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
@@ -377,6 +408,13 @@ for i = 1, 2 do
     waterSprite:add()
     waterSprites[i] = waterSprite
 end
+
+-- pdc converts the colorful source PNG to Playdate's 1-bit format. Its alpha
+-- channel leaves the lower river opening transparent so the water remains visible.
+local mainMenuBackgroundSprite = pdg.sprite.new(mainMenuBackgroundImage)
+mainMenuBackgroundSprite:moveTo(200, TUNING.MAIN_MENU_BACKGROUND_CENTER_Y)
+mainMenuBackgroundSprite:setZIndex(TUNING.MAIN_MENU_Z_INDEX)
+mainMenuBackgroundSprite:add()
 
 local worldVelocityInterpolationSpeed = 0.08
 local rockImage1 = pdg.image.new("images/Rock1")
@@ -451,17 +489,16 @@ for i = 1, TUNING.MAX_ROCKS do
 end
 
 local velocityIncreaseTimer = pd.timer.new(TUNING.VELOCITY_INCREASE_INTERVAL_MS, function()
-    worldVelocity = math.min(
-        TUNING.MAX_WORLD_VELOCITY,
-        worldVelocity * TUNING.WORLD_VELOCITY_GROWTH_MULTIPLIER
-    )
-    playerScoreStep += 10
+    if BoatGameState == GameState.ALIVE then
+        worldVelocity = math.min(
+            TUNING.MAX_WORLD_VELOCITY,
+            worldVelocity * TUNING.WORLD_VELOCITY_GROWTH_MULTIPLIER
+        )
+        playerScoreStep += 10
+    end
 end)
 velocityIncreaseTimer.repeats = true
-
-if pd.isCrankDocked() then
-    velocityIncreaseTimer:pause()
-end
+velocityIncreaseTimer:pause()
 
 -- Player image
 local playerSprite = pdg.sprite.new(playerImagetable:getImage(1))
@@ -1384,29 +1421,6 @@ local function drawHud()
     end
 end
 
-local function drawCrashMessage()
-    local textX = 200
-    local textY = math.floor((240 - crashMessageHeight) / 2)
-    local backgroundX = math.floor(textX - crashMessageWidth / 2) - CRASH_MESSAGE_PADDING
-    local backgroundY = textY - CRASH_MESSAGE_PADDING
-    local backgroundWidth = crashMessageWidth + CRASH_MESSAGE_PADDING * 2
-    local backgroundHeight = crashMessageHeight + CRASH_MESSAGE_PADDING * 2
-    local previousColor = pdg.getColor()
-
-    pdg.setColor(pdg.kColorWhite)
-    pdg.fillRect(backgroundX, backgroundY, backgroundWidth, backgroundHeight)
-    pdg.setColor(pdg.kColorBlack)
-    pdg.drawRect(backgroundX, backgroundY, backgroundWidth, backgroundHeight)
-    pdg.drawTextAligned(
-        CRASH_MESSAGE_TEXT,
-        textX,
-        textY,
-        kTextAlignment.center
-    )
-
-    pdg.setColor(previousColor)
-end
-
 local function destroyRock(rock)
     startRockExplosion(rock.x, rock.y)
     playRockExplosionSound()
@@ -1462,8 +1476,78 @@ local function handlePlayerCollisions(collisions, length)
     return false
 end
 
-local function resetGame()
-    BoatGameState = GameState.ALIVE
+local function setWaterTransform(scrollX, centerY)
+    waterScrollX = scrollX % waterImageWidth
+    waterSprites[1]:moveTo(waterScrollX, centerY)
+    waterSprites[2]:moveTo(waterScrollX - waterImageWidth, centerY)
+end
+
+local function hideGameplayWorld()
+    clearWakeLines()
+    resetCollectables()
+    decorationManager:reset()
+    clearRockExplosions()
+
+    for i = 1, TUNING.MAX_ROCKS do
+        rockSprites[i].active = false
+        rockSprites[i]:setVisible(false)
+    end
+end
+
+local function rewindGameplayWorld(elapsedMilliseconds, displacement)
+    local remainingObjectCount = 0
+
+    for i = 1, TUNING.MAX_ROCKS do
+        local rock = rockSprites[i]
+
+        if rock.active then
+            rock:moveBy(displacement, 0)
+
+            if rock.x + rock.imageWidth / 2 < 0 then
+                rock.active = false
+                rock:setVisible(false)
+            else
+                remainingObjectCount += 1
+            end
+        end
+    end
+
+    for i = 1, #collectableSprites do
+        local collectable = collectableSprites[i]
+
+        if collectable.active then
+            collectable:moveBy(displacement, 0)
+
+            if collectable.x + collectable.imageWidth / 2 < 0 then
+                collectable:despawn()
+            else
+                remainingObjectCount += 1
+            end
+        end
+    end
+
+    for i = 1, #decorationSprites do
+        local decoration = decorationSprites[i]
+
+        if decoration.active then
+            decoration:moveBy(displacement, 0)
+
+            if decoration.x + decoration.imageWidth / 2 < 0 then
+                decoration.active = false
+                decoration:setVisible(false)
+                decoration:remove()
+            else
+                remainingObjectCount += 1
+            end
+        end
+    end
+
+    updateRockExplosions(elapsedMilliseconds, displacement)
+    explosionX += displacement
+    return remainingObjectCount
+end
+
+local function prepareNewRun()
     xVelocity = 0
     yVelocity = 0
     targetXVelocity = 0
@@ -1496,21 +1580,17 @@ local function resetGame()
     boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
     waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
     gameMusicRate = TUNING.MUSIC_NORMAL_RATE
-    gameMusicPlayer:stop()
+    musicPlayers.gameplay:stop()
     hudMessage = nil
     hudMessageRemainingMilliseconds = 0
+    crashReturnDelayElapsedMilliseconds = 0
 
     scoreTimer:reset()
     velocityIncreaseTimer:reset()
-    if pd.isCrankDocked() then
-        velocityIncreaseTimer:pause()
-        stopGameplayLoopSounds()
-    else
-        velocityIncreaseTimer:start()
-        stopGameplayLoopSounds()
-        startGameplayLoopSounds()
-    end
+    velocityIncreaseTimer:pause()
+    stopGameplayLoopSounds()
 
+    playerSprite:setVisible(true)
     playerSprite:setScale(1)
     playerSprite:setCollideRect(
         playerCollisionX,
@@ -1519,29 +1599,110 @@ local function resetGame()
         playerCollisionHeight
     )
     playerSprite:moveTo(playerX, playerY)
-    waterScrollX = 0
-    waterSprites[1]:moveTo(0, TUNING.WATER_BACKGROUND_Y_OFFSET)
-    waterSprites[2]:moveTo(-waterImageWidth, TUNING.WATER_BACKGROUND_Y_OFFSET)
-    clearWakeLines()
-    resetCollectables()
-    decorationManager:reset()
+    hideGameplayWorld()
+    resetExplosion()
+end
 
-    for i = 1, TUNING.MAX_ROCKS do
-        rockSprites[i].active = false
-        rockSprites[i]:setVisible(false)
-    end
+local function enterMainMenu()
+    prepareNewRun()
+    BoatGameState = GameState.MAIN_MENU
+    presentationElapsedMilliseconds = 0
+    waitingCrankMovement = 0
+
+    mainMenuBackgroundSprite:setVisible(true)
+    mainMenuBackgroundSprite:moveTo(200, TUNING.MAIN_MENU_BACKGROUND_CENTER_Y)
+    setWaterTransform(waterScrollX, TUNING.MAIN_MENU_WATER_CENTER_Y)
+
+    playerX = TUNING.MAIN_MENU_BOAT_X
+    playerY = TUNING.MAIN_MENU_BOAT_Y
+    playerSprite:setImage(playerImagetable:getImage(TUNING.MAIN_MENU_BOAT_FRAME_INDEX))
+    playerSprite:moveTo(playerX, playerY)
+    startMenuMusic()
+end
+
+local function startLaunchTransition()
+    BoatGameState = GameState.LAUNCHING
+    presentationElapsedMilliseconds = 0
+    clearWakeLines()
+    startBoatEngineSound()
+    startWaterFlowSound()
+    startMenuMusic()
+end
+
+local function beginWaitingForCrank()
+    BoatGameState = GameState.WAITING_FOR_CRANK
+    presentationElapsedMilliseconds = 0
+    waitingCrankMovement = 0
+    mainMenuBackgroundSprite:setVisible(false)
+    setWaterTransform(waterScrollX, TUNING.WATER_BACKGROUND_Y_OFFSET)
+    playerX = TUNING.GAMEPLAY_ENTRY_BOAT_X
+    playerY = TUNING.GAMEPLAY_ENTRY_BOAT_Y
+    playerSprite:moveTo(playerX, playerY)
+    clearWakeLines()
+    stopBoatEngineSound()
+    stopWaterFlowSound()
+    startMenuMusic()
+end
+
+local function beginStartRotation()
+    BoatGameState = GameState.ALIGNING_TO_CRANK
+    presentationElapsedMilliseconds = 0
+    startRotationAngle = 180
+    startGameplayLoopSounds()
+end
+
+local function beginGameplay()
+    BoatGameState = GameState.ALIVE
+    scoreTimer:reset()
+    velocityIncreaseTimer:reset()
+    velocityIncreaseTimer:start()
 
     for i = 1, TUNING.MAX_ROCKS do
         resetRockPosition(rockSprites[i])
     end
 
-    resetExplosion()
-    clearRockExplosions()
+    lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
+    startGameplayLoopSounds()
 end
+
+local function beginReturnToMenu()
+    BoatGameState = GameState.RETURNING_TO_MENU
+    presentationElapsedMilliseconds = 0
+    hideGameplayWorld()
+    resetExplosion()
+    stopBoatEngineSound()
+    stopWaterFlowSound()
+
+    mainMenuBackgroundSprite:setVisible(true)
+    mainMenuBackgroundSprite:moveTo(200, TUNING.MAIN_MENU_BACKGROUND_OFFSCREEN_Y)
+    playerSprite:setVisible(true)
+    playerSprite:setScale(1)
+    playerSprite:setImage(playerImagetable:getImage(TUNING.MAIN_MENU_BOAT_FRAME_INDEX))
+    playerSpeedMode = 1
+    playerX = TUNING.MAIN_MENU_BOAT_X
+    playerY = TUNING.MAIN_MENU_BACKGROUND_OFFSCREEN_Y
+        - TUNING.MAIN_MENU_BACKGROUND_CENTER_Y
+        + TUNING.MAIN_MENU_BOAT_Y
+    playerSprite:moveTo(playerX, playerY)
+    startMenuMusic()
+end
+
+local function smoothstep(progress)
+    local clampedProgress = math.clamp(progress, 0, 1)
+    return clampedProgress * clampedProgress * (3 - 2 * clampedProgress)
+end
+
+enterMainMenu()
 
 function playdate.crankDocked()
     velocityIncreaseTimer:pause()
-    stopGameplayLoopSounds()
+
+    if BoatGameState == GameState.ALIVE then
+        stopGameplayLoopSounds()
+    else
+        stopBoatEngineSound()
+        stopWaterFlowSound()
+    end
 end
 
 function playdate.crankUndocked()
@@ -1563,6 +1724,16 @@ function playdate.gameWillResume()
 
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
         startGameplayLoopSounds()
+    elseif BoatGameState == GameState.ALIGNING_TO_CRANK then
+        startGameplayLoopSounds()
+    elseif BoatGameState == GameState.LAUNCHING then
+        startBoatEngineSound()
+        startWaterFlowSound()
+        startMenuMusic()
+    elseif BoatGameState ~= GameState.CRASH_REWIND
+        or crashReturnDelayElapsedMilliseconds >= TUNING.CRASH_RETURN_DELAY_MS
+    then
+        startMenuMusic()
     end
 end
 
@@ -1597,27 +1768,205 @@ function playdate.update()
         end
     end
 
-    -- Keep gameplay paused until the player uses the crank.
+    if BoatGameState == GameState.MAIN_MENU then
+        stopBoatEngineSound()
+        stopWaterFlowSound()
+        startMenuMusic()
+        local initialWorldDisplacement = math.max(
+            TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
+            math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
+        )
+        setWaterTransform(
+            waterScrollX + initialWorldDisplacement,
+            TUNING.MAIN_MENU_WATER_CENTER_Y
+        )
+        pdg.sprite.update()
+
+        if pd.buttonJustPressed(pd.kButtonA) then
+            startLaunchTransition()
+        end
+
+        return
+    end
+
+    if BoatGameState == GameState.LAUNCHING then
+        presentationElapsedMilliseconds += elapsedMilliseconds
+        local transitionProgress = smoothstep(
+            presentationElapsedMilliseconds / TUNING.MENU_LAUNCH_DURATION_MS
+        )
+        local menuY = TUNING.MAIN_MENU_BACKGROUND_CENTER_Y
+            + (TUNING.MAIN_MENU_BACKGROUND_OFFSCREEN_Y
+                - TUNING.MAIN_MENU_BACKGROUND_CENTER_Y) * transitionProgress
+        local waterY = TUNING.MAIN_MENU_WATER_CENTER_Y
+            + (TUNING.WATER_BACKGROUND_Y_OFFSET
+                - TUNING.MAIN_MENU_WATER_CENTER_Y) * transitionProgress
+
+        local initialWorldDisplacement = math.max(
+            TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
+            math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
+        )
+        local inverseTransitionProgress = 1 - transitionProgress
+
+        mainMenuBackgroundSprite:moveTo(200, menuY)
+        setWaterTransform(waterScrollX + initialWorldDisplacement, waterY)
+        playerX = TUNING.MAIN_MENU_BOAT_X
+            + (TUNING.GAMEPLAY_ENTRY_BOAT_X - TUNING.MAIN_MENU_BOAT_X) * transitionProgress
+        playerY = inverseTransitionProgress * inverseTransitionProgress * TUNING.MAIN_MENU_BOAT_Y
+            + 2 * inverseTransitionProgress * transitionProgress * TUNING.MENU_LAUNCH_BOAT_DIP_Y
+            + transitionProgress * transitionProgress * TUNING.GAMEPLAY_ENTRY_BOAT_Y
+        playerSprite:moveTo(playerX, playerY)
+        updateWakeLines(
+            180,
+            TUNING.MAIN_MENU_BOAT_FRAME_INDEX,
+            false,
+            initialWorldDisplacement
+        )
+        pdg.sprite.update()
+        drawWakeLines()
+
+        if presentationElapsedMilliseconds >= TUNING.MENU_LAUNCH_DURATION_MS then
+            beginWaitingForCrank()
+        end
+
+        return
+    end
+
+    if BoatGameState == GameState.WAITING_FOR_CRANK then
+        velocityIncreaseTimer:pause()
+        stopBoatEngineSound()
+        stopWaterFlowSound()
+        startMenuMusic()
+        local initialWorldDisplacement = math.max(
+            TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
+            math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
+        )
+        setWaterTransform(
+            waterScrollX + initialWorldDisplacement,
+            TUNING.WATER_BACKGROUND_Y_OFFSET
+        )
+        waitingCrankMovement += math.abs(pd.getCrankChange())
+        pdg.sprite.update()
+        drawHud()
+        pd.ui.crankIndicator:draw()
+
+        if pd.isCrankDocked() == false
+            and waitingCrankMovement >= TUNING.START_CRANK_MOVEMENT_DEGREES
+        then
+            beginStartRotation()
+        end
+
+        return
+    end
+
+    if BoatGameState == GameState.ALIGNING_TO_CRANK then
+        presentationElapsedMilliseconds += elapsedMilliseconds
+        local rotationProgress = smoothstep(
+            presentationElapsedMilliseconds / TUNING.START_ROTATION_DURATION_MS
+        )
+        local targetRotationAngle = pd.getCrankPosition()
+        local rotationDelta = (targetRotationAngle - startRotationAngle + 180) % 360 - 180
+        local currentRotationAngle = math.normalizeAngle(
+            startRotationAngle + rotationDelta * rotationProgress
+        )
+        local playerFrameIndex = math.clamp(
+            math.ceil(currentRotationAngle / 7.5),
+            1,
+            playerImagetableSize
+        )
+        local initialWorldDisplacement = math.max(
+            TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
+            math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
+        )
+
+        setWaterTransform(
+            waterScrollX + initialWorldDisplacement,
+            TUNING.WATER_BACKGROUND_Y_OFFSET
+        )
+        playerSprite:setImage(playerImagetable:getImage(playerFrameIndex))
+        pdg.sprite.update()
+        drawHud()
+
+        if presentationElapsedMilliseconds >= TUNING.START_ROTATION_DURATION_MS then
+            beginGameplay()
+        end
+
+        return
+    end
+
+    if BoatGameState == GameState.CRASH_REWIND then
+        presentationElapsedMilliseconds += elapsedMilliseconds
+        crashReturnDelayElapsedMilliseconds += elapsedMilliseconds
+        local rewindDisplacement = 0
+        local crashDelayFinished = crashReturnDelayElapsedMilliseconds
+            >= TUNING.CRASH_RETURN_DELAY_MS
+
+        -- Freeze the world immediately after the crash. Once the pause ends,
+        -- start the rewind and let every world element move together.
+        if crashDelayFinished then
+            startMenuMusic()
+            local rewindElapsedMilliseconds = crashReturnDelayElapsedMilliseconds
+                - TUNING.CRASH_RETURN_DELAY_MS
+            local rewindSpeedProgress = smoothstep(
+                rewindElapsedMilliseconds / TUNING.CRASH_REWIND_ACCELERATION_MS
+            )
+            rewindDisplacement = -TUNING.CRASH_REWIND_SPEED_PIXELS_PER_SECOND
+                * rewindSpeedProgress * elapsedMilliseconds / 1000
+        end
+
+        local remainingObjectCount = rewindGameplayWorld(
+            elapsedMilliseconds,
+            rewindDisplacement
+        )
+
+        setWaterTransform(waterScrollX + rewindDisplacement, TUNING.WATER_BACKGROUND_Y_OFFSET)
+        pdg.sprite.update()
+        updateExplosion()
+
+        if crashDelayFinished and remainingObjectCount == 0 then
+            beginReturnToMenu()
+        end
+
+        return
+    end
+
+    if BoatGameState == GameState.RETURNING_TO_MENU then
+        presentationElapsedMilliseconds += elapsedMilliseconds
+        local transitionProgress = smoothstep(
+            presentationElapsedMilliseconds / TUNING.MENU_RETURN_DURATION_MS
+        )
+        local menuY = TUNING.MAIN_MENU_BACKGROUND_OFFSCREEN_Y
+            + (TUNING.MAIN_MENU_BACKGROUND_CENTER_Y
+                - TUNING.MAIN_MENU_BACKGROUND_OFFSCREEN_Y) * transitionProgress
+        local waterY = TUNING.WATER_BACKGROUND_Y_OFFSET
+            + (TUNING.MAIN_MENU_WATER_CENTER_Y
+                - TUNING.WATER_BACKGROUND_Y_OFFSET) * transitionProgress
+
+        local initialWorldDisplacement = math.max(
+            TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
+            math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
+        )
+
+        mainMenuBackgroundSprite:moveTo(200, menuY)
+        setWaterTransform(waterScrollX + initialWorldDisplacement, waterY)
+        playerX = TUNING.MAIN_MENU_BOAT_X
+        playerY = menuY - TUNING.MAIN_MENU_BACKGROUND_CENTER_Y + TUNING.MAIN_MENU_BOAT_Y
+        playerSprite:moveTo(playerX, playerY)
+        pdg.sprite.update()
+
+        if presentationElapsedMilliseconds >= TUNING.MENU_RETURN_DURATION_MS then
+            enterMainMenu()
+        end
+
+        return
+    end
+
+    -- Docking pauses only an active run; menu transitions remain available.
     if pd.isCrankDocked() then
         stopGameplayLoopSounds()
         pdg.sprite.update()
         drawHud()
         pd.ui.crankIndicator:draw()
         velocityIncreaseTimer:pause()
-        return
-    end
-
-    if BoatGameState == GameState.CRASHED then
-        stopGameplayLoopSounds()
-        pdg.sprite.update()
-        updateExplosion()
-        drawHud()
-        drawCrashMessage()
-
-        if pd.buttonJustReleased(pd.kButtonA) then
-            resetGame()
-        end
-
         return
     end
 
@@ -1721,7 +2070,9 @@ function playdate.update()
     local didCrash = handlePlayerCollisions(collisions, length)
 
     if didCrash then
-        BoatGameState = GameState.CRASHED
+        BoatGameState = GameState.CRASH_REWIND
+        presentationElapsedMilliseconds = 0
+        crashReturnDelayElapsedMilliseconds = 0
         velocityIncreaseTimer:pause()
         stopGameplayLoopSounds()
         playerSprite:setScale(0)
@@ -1746,5 +2097,7 @@ function playdate.update()
         drawDiegeticAbilities(currentVelocityAngle)
     end
 
-    drawHud()
+    if didCrash == false then
+        drawHud()
+    end
 end
