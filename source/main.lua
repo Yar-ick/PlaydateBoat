@@ -12,6 +12,7 @@ import "ShrinkCollectable"
 import "SpeedReductionCollectable"
 import "InteractiveSpawn"
 import "DecorationManager"
+import "AbilityTopUI"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -47,10 +48,6 @@ local speedometerImage = pdg.image.new("images/Speedometer")
 local speedometerNeedleImage = pdg.image.new("images/SpeedometerNeedle")
 local coinImagetable = pdg.imagetable.new("images/Coin")
 local starImage = pdg.image.new("images/Star")
-local shieldImage = pdg.image.new("images/Shield")
-local shrinkImage = pdg.image.new("images/Srink")
-local speedReductionImage = pdg.image.new("images/SpeedReduction")
-local dashImage = pdg.image.new("images/Dash")
 local shieldCollectableImage = pdg.image.new("images/ShieldNoFrame")
 local shrinkCollectableImage = pdg.image.new("images/SrinkNoFrame")
 local speedReductionCollectableImage = pdg.image.new("images/SpeedReductionNoFrame")
@@ -246,11 +243,19 @@ local dashUpgradeLevel =
     math.clamp(math.floor(tonumber(savedUpgrades.dash) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
 local AUDIO_MODE_OPTIONS <const> = { "SFX + Music", "SFX", "Music" }
 local selectedAudioMode = savedProgress.audioMode
+local UI_MODE_OPTIONS <const> = { "On Top", "Near Boat", "Top + Boat" }
+local selectedUiMode = savedProgress.uiMode
 
 if selectedAudioMode ~= AUDIO_MODE_OPTIONS[1]
     and selectedAudioMode ~= AUDIO_MODE_OPTIONS[2]
     and selectedAudioMode ~= AUDIO_MODE_OPTIONS[3] then
     selectedAudioMode = AUDIO_MODE_OPTIONS[1]
+end
+
+if selectedUiMode ~= UI_MODE_OPTIONS[1]
+    and selectedUiMode ~= UI_MODE_OPTIONS[2]
+    and selectedUiMode ~= UI_MODE_OPTIONS[3] then
+    selectedUiMode = UI_MODE_OPTIONS[1]
 end
 
 local progressNeedsSave = false
@@ -268,6 +273,7 @@ local function saveProgress()
     local progress = {
         coins = playerCoins,
         audioMode = selectedAudioMode,
+        uiMode = selectedUiMode,
         upgrades = {
             shield = shieldUpgradeLevel,
             shrink = shrinkUpgradeLevel,
@@ -304,6 +310,12 @@ applyAudioMode()
 pd.getSystemMenu():addOptionsMenuItem("audio", AUDIO_MODE_OPTIONS, selectedAudioMode, function(newAudioMode)
     selectedAudioMode = newAudioMode
     applyAudioMode()
+    markProgressChanged()
+    saveProgress()
+end)
+
+pd.getSystemMenu():addOptionsMenuItem("UI", UI_MODE_OPTIONS, selectedUiMode, function(newUiMode)
+    selectedUiMode = newUiMode
     markProgressChanged()
     saveProgress()
 end)
@@ -1014,6 +1026,214 @@ local function drawWakeLines()
     pdg.setColor(previousColor)
 end
 
+local function drawDashChargeChevrons(currentVelocityAngle, drawWhiteBackground)
+    local dashChargeProgress = 1
+    local visibleChevronCount
+
+    if dashCooldownRemainingMilliseconds > 0 then
+        dashChargeProgress = 1
+            - dashCooldownRemainingMilliseconds / dashCooldownDurationMilliseconds
+        visibleChevronCount = math.min(
+            TUNING.DIEGETIC_DASH_CHEVRON_COUNT - 1,
+            math.floor(math.clamp(dashChargeProgress, 0, 1) * TUNING.DIEGETIC_DASH_CHEVRON_COUNT)
+        )
+    else
+        -- The final arrow is reserved for the exact frame Dash becomes usable.
+        visibleChevronCount = TUNING.DIEGETIC_DASH_CHEVRON_COUNT
+    end
+
+    if visibleChevronCount <= 0 then
+        return
+    end
+
+    local angleRadians = math.rad(currentVelocityAngle - 5)
+    local forwardX = math.sin(angleRadians)
+    local forwardY = -math.cos(angleRadians)
+    local rightX = math.cos(angleRadians)
+    local rightY = math.sin(angleRadians)
+    local indicatorRadiusScale = 0.5 + currentPlayerScale * 0.5
+    local frontDistance = TUNING.DIEGETIC_DASH_FRONT_DISTANCE * indicatorRadiusScale
+
+    for chevronIndex = 1, visibleChevronCount do
+        -- Build the charge outward from the bow in fixed forward-facing slots.
+        local distance = frontDistance
+            + (chevronIndex - 1) * TUNING.DIEGETIC_DASH_CHEVRON_SPACING
+        local centerX = playerX + forwardX * distance
+        local centerY = playerY + forwardY * distance
+        local tipX = centerX + forwardX * 2
+        local tipY = centerY + forwardY * 2
+        local baseX = centerX - forwardX * 2
+        local baseY = centerY - forwardY * 2
+        local sideX = rightX * TUNING.DIEGETIC_DASH_CHEVRON_HALF_WIDTH
+        local sideY = rightY * TUNING.DIEGETIC_DASH_CHEVRON_HALF_WIDTH
+
+        if drawWhiteBackground then
+            local backgroundForwardX = forwardX * TUNING.DIEGETIC_DASH_BACKGROUND_HALF_LENGTH
+            local backgroundForwardY = forwardY * TUNING.DIEGETIC_DASH_BACKGROUND_HALF_LENGTH
+            local backgroundRightX = rightX * TUNING.DIEGETIC_DASH_BACKGROUND_HALF_WIDTH
+            local backgroundRightY = rightY * TUNING.DIEGETIC_DASH_BACKGROUND_HALF_WIDTH
+
+            pdg.fillPolygon(
+                centerX + backgroundForwardX + backgroundRightX,
+                centerY + backgroundForwardY + backgroundRightY,
+                centerX + backgroundForwardX - backgroundRightX,
+                centerY + backgroundForwardY - backgroundRightY,
+                centerX - backgroundForwardX - backgroundRightX,
+                centerY - backgroundForwardY - backgroundRightY,
+                centerX - backgroundForwardX + backgroundRightX,
+                centerY - backgroundForwardY + backgroundRightY
+            )
+        else
+            pdg.drawLine(baseX + sideX, baseY + sideY, tipX, tipY)
+            pdg.drawLine(baseX - sideX, baseY - sideY, tipX, tipY)
+        end
+    end
+end
+
+local function drawShrinkProgressArc(currentVelocityAngle)
+    local progress = math.clamp(shrinkUiProgress, 0, 1)
+
+    if progress <= 0 then
+        return
+    end
+
+    local angleRadians = math.rad(currentVelocityAngle)
+    local forwardX = math.sin(angleRadians)
+    local forwardY = -math.cos(angleRadians)
+    local rightX = math.cos(angleRadians)
+    local rightY = math.sin(angleRadians)
+    local radiusScale = 0.5 + currentPlayerScale * 0.5
+    local majorRadius = TUNING.DIEGETIC_SHRINK_ARC_MAJOR_RADIUS * radiusScale
+    local minorRadius = TUNING.DIEGETIC_SHRINK_ARC_MINOR_RADIUS * radiusScale
+    local segmentCount = TUNING.DIEGETIC_SHRINK_ARC_SEGMENT_COUNT
+    local completedSegments = progress * segmentCount
+    local endInset = math.rad(TUNING.DIEGETIC_SHRINK_ARC_END_INSET_DEGREES)
+    local arcStartAngle = math.pi + endInset
+    local arcLength = math.pi - endInset * 2
+
+    for segmentIndex = 1, math.ceil(completedSegments) do
+        local segmentStart = (segmentIndex - 1) / segmentCount
+        local segmentEnd = math.min(segmentIndex / segmentCount, progress)
+        local startAngle = arcStartAngle + arcLength * segmentStart
+        local endAngle = arcStartAngle + arcLength * segmentEnd
+        local startForward = math.cos(startAngle) * majorRadius
+        local startRight = math.sin(startAngle) * minorRadius
+        local endForward = math.cos(endAngle) * majorRadius
+        local endRight = math.sin(endAngle) * minorRadius
+
+        pdg.drawLine(
+            playerX + forwardX * startForward + rightX * startRight,
+            playerY + forwardY * startForward + rightY * startRight,
+            playerX + forwardX * endForward + rightX * endRight,
+            playerY + forwardY * endForward + rightY * endRight
+        )
+    end
+end
+
+local function drawShieldStorage(currentVelocityAngle)
+    if shieldHitsRemaining <= 0 then
+        return
+    end
+
+    local angleRadians = math.rad(currentVelocityAngle)
+    local forwardX = math.sin(angleRadians)
+    local forwardY = -math.cos(angleRadians)
+    local rightX = math.cos(angleRadians)
+    local rightY = math.sin(angleRadians)
+    local radiusScale = 0.5 + currentPlayerScale * 0.5
+    local starboardDistance = TUNING.DIEGETIC_SHIELD_STARBOARD_DISTANCE * radiusScale
+    local iconCount = math.min(shieldHitsRemaining, 3)
+    local extraRingCharges = math.max(0, math.min(shieldHitsRemaining, 9) - 3)
+    local shieldImageWidth, shieldImageHeight = shieldCollectableImage:getSize()
+    local previousImageDrawMode = pdg.getImageDrawMode()
+    local previousLineWidth = pdg.getLineWidth()
+    local previousColor = pdg.getColor()
+
+    pdg.setImageDrawMode(pdg.kDrawModeCopy)
+
+    for iconIndex = 1, iconCount do
+        local forwardOffset = 0
+        local iconSpacing = TUNING.DIEGETIC_SHIELD_ICON_SPACING
+
+        if shieldHitsRemaining >= TUNING.MAX_SHIELD_HITS then
+            iconSpacing = TUNING.DIEGETIC_SHIELD_FULL_ICON_SPACING
+        end
+
+        if iconCount == 2 then
+            forwardOffset = (iconIndex - 1.5) * iconSpacing
+        elseif iconCount == 3 then
+            forwardOffset = (iconIndex - 2) * iconSpacing
+        end
+
+        local centerX = playerX + rightX * starboardDistance + forwardX * forwardOffset
+        local centerY = playerY + rightY * starboardDistance + forwardY * forwardOffset
+        local shieldIconScale = TUNING.DIEGETIC_SHIELD_ICON_SCALE
+
+        if shieldHitsRemaining >= TUNING.MAX_SHIELD_HITS and iconIndex == 2 then
+            shieldIconScale = TUNING.DIEGETIC_SHIELD_FULL_CENTER_ICON_SCALE
+        end
+
+        local ringCount = math.floor(extraRingCharges / 3)
+        local partialRingCount = extraRingCharges % 3
+
+        -- Add partial rounds center-first, then aft, then forward.
+        if partialRingCount >= 1 and iconIndex == 2 then
+            ringCount += 1
+        elseif partialRingCount >= 2 and iconIndex == 1 then
+            ringCount += 1
+        end
+
+        for ringIndex = 1, ringCount do
+            local ringRadius = shieldImageWidth * shieldIconScale / 2
+                + TUNING.DIEGETIC_SHIELD_RING_GAP
+                + (ringIndex - 1) * TUNING.DIEGETIC_SHIELD_RING_SPACING
+
+            pdg.setColor(pdg.kColorWhite)
+            pdg.setLineWidth(3)
+            pdg.drawCircleAtPoint(centerX, centerY, ringRadius)
+            pdg.setColor(pdg.kColorBlack)
+            pdg.setLineWidth(1)
+            pdg.drawCircleAtPoint(centerX, centerY, ringRadius)
+        end
+
+        shieldCollectableImage:drawScaled(
+            math.floor(centerX - shieldImageWidth * shieldIconScale / 2 + 0.5),
+            math.floor(centerY - shieldImageHeight * shieldIconScale / 2 + 0.5)
+                + TUNING.DIEGETIC_SHIELD_IMAGE_Y_OFFSET,
+            shieldIconScale
+        )
+    end
+
+    pdg.setImageDrawMode(previousImageDrawMode)
+    pdg.setLineWidth(previousLineWidth)
+    pdg.setColor(previousColor)
+end
+
+local function drawDiegeticAbilities(currentVelocityAngle)
+    local previousLineWidth = pdg.getLineWidth()
+    local previousColor = pdg.getColor()
+
+    -- Solid white backing plates prevent the water texture from crossing Dash arrows.
+    pdg.setColor(pdg.kColorWhite)
+    drawDashChargeChevrons(currentVelocityAngle, true)
+
+    -- The wider white line keeps the curved Shrink bar readable over the world.
+    pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_BACKGROUND_LINE_WIDTH)
+    drawShrinkProgressArc(currentVelocityAngle)
+
+    pdg.setColor(pdg.kColorBlack)
+    pdg.setLineWidth(TUNING.DIEGETIC_DASH_LINE_WIDTH)
+    drawDashChargeChevrons(currentVelocityAngle, false)
+    pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_LINE_WIDTH)
+    drawShrinkProgressArc(currentVelocityAngle)
+
+    -- Shield storage uses the recognizable collectable art at a smaller scale.
+    drawShieldStorage(currentVelocityAngle)
+
+    pdg.setLineWidth(previousLineWidth)
+    pdg.setColor(previousColor)
+end
+
 local function startRockExplosion(x, y)
     local explosionSprite = pdg.sprite.new(rockExplosionImagetable:getImage(1))
     explosionSprite:setZIndex(TUNING.ROCK_EXPLOSION_Z_INDEX)
@@ -1053,22 +1273,29 @@ local function clearRockExplosions()
     rockExplosions = {}
 end
 
-local function drawVerticalProgressIcon(image, x, y, progress)
-    local width, height = image:getSize()
-    local clampedProgress = math.clamp(progress, 0, 1)
-    local filledHeight = math.floor(height * clampedProgress + 0.5)
+local fixedWidthDigitCellWidth = 0
 
-    -- Keep the ability recognizable while unavailable, then reveal the solid icon
-    -- from bottom to top as its progress fills.
-    image:drawFaded(x, y, 0.25, pdg.image.kDitherTypeBayer8x8)
+for digit = 0, 9 do
+    local digitWidth = pdg.getTextSize(tostring(digit))
+    fixedWidthDigitCellWidth = math.max(fixedWidthDigitCellWidth, digitWidth)
+end
 
-    if filledHeight > 0 then
-        pdg.setClipRect(x, y + height - filledHeight, width, filledHeight)
-        image:draw(x, y)
-        pdg.clearClipRect()
+local function getFixedWidthNumberWidth(numberText)
+    return string.len(numberText) * (fixedWidthDigitCellWidth + 1)
+end
+
+local function drawFixedWidthNumber(numberText, x, y)
+    local digitCenterX = x + math.floor(fixedWidthDigitCellWidth / 2)
+
+    for digitIndex = 1, string.len(numberText) do
+        pdg.drawTextAligned(
+            string.sub(numberText, digitIndex, digitIndex),
+            digitCenterX,
+            y,
+            kTextAlignment.center
+        )
+        digitCenterX += fixedWidthDigitCellWidth + 1
     end
-
-    return width
 end
 
 local function updateSpeedometerNeedle(dashSpeed)
@@ -1096,45 +1323,61 @@ end
 
 local function drawHud()
     backgroundHUDImage:draw(0, 0)
-    local speedometerX <const> = 15
-    local speedometerY <const> = 12
+    local speedometerX <const> = 2
+    local speedometerY <const> = 2
     local speedometerWidth, speedometerHeight = speedometerImage:getSize()
+
     speedometerImage:draw(speedometerX, speedometerY)
     speedometerNeedleImage:drawRotated(
         speedometerX + speedometerWidth / 2,
         speedometerY + speedometerHeight / 2,
         speedometerNeedleAngle
     )
-    local abilitiesY = 18
 
-    drawVerticalProgressIcon(
-        dashImage,
-        60,
-        abilitiesY,
-        dashUiProgress
-    )
+    if selectedUiMode == UI_MODE_OPTIONS[1] or selectedUiMode == UI_MODE_OPTIONS[3] then
+        AbilityTopUI.draw(
+            dashUiProgress,
+            dashCooldownRemainingMilliseconds <= 0,
+            shrinkUiProgress,
+            shieldHitsRemaining,
+            TUNING
+        )
+    end
 
-    drawVerticalProgressIcon(shrinkImage, 92, abilitiesY, shrinkUiProgress)
+    local scoreText = tostring(playerScore)
+    local scoreLength = string.len(scoreText)
+    local emptyNumberDigits = 7 - scoreLength
 
-    local shieldProgress = shieldHitsRemaining / TUNING.MAX_SHIELD_HITS
-    drawVerticalProgressIcon(shieldImage, 124, abilitiesY, shieldProgress)
-    -- pdg.drawText("x" .. shieldHitsRemaining, 124 + 20, abilitiesY + 2)
+    for i = 1, emptyNumberDigits, 1 do
+        scoreText = "0" .. scoreText
+    end
 
-    local scoreText = "" .. playerScore
-    local scoreTextWidth = pdg.getTextSize(scoreText)
-    local scoreX = 400 - scoreTextWidth - 18
+    local scoreTextWidth = getFixedWidthNumberWidth(scoreText)
+    local scoreX = 400 - scoreTextWidth - 2
     local starImageWidth = starImage:getSize()
-    local starX = scoreX - starImageWidth - 5
-    starImage:draw(starX, 17)
-    pdg.drawText(scoreText, scoreX, 21)
+    local starX = 400 - scoreTextWidth - starImageWidth - 5
 
     local coinText = tostring(playerCoins)
-    local coinTextWidth = pdg.getTextSize(coinText)
+    emptyNumberDigits = 3 - string.len(coinText)
+
+    for i = 1, emptyNumberDigits, 1 do
+        coinText = "0" .. coinText
+    end
+
+    local coinTextWidth = getFixedWidthNumberWidth(coinText)
     local coinImage = coinImagetable:getImage(1)
     local coinImageWidth = coinImage:getSize()
-    local coinX = starX - coinImageWidth - coinTextWidth - 10
-    coinImage:draw(coinX, 18)
-    pdg.drawText(coinText, coinX + coinImageWidth + 2, 21)
+    local coinTextX = 400 - coinTextWidth - 2
+    local coinX = coinTextX - coinImageWidth - 3
+    local previousColor = pdg.getColor()
+
+    pdg.setColor(pdg.kColorBlack)
+    drawFixedWidthNumber(scoreText, scoreX, 6)
+    starImage:draw(starX, 2)
+
+    drawFixedWidthNumber(coinText, coinTextX, 27)
+    coinImage:draw(coinX, 25)
+    pdg.setColor(previousColor)
 
     if hudMessage ~= nil then
         pdg.drawText(hudMessage, 10, 216)
@@ -1469,7 +1712,7 @@ function playdate.update()
     playerX = math.clamp(playerX, scaledPlayerWidth / 2, 400 - scaledPlayerWidth / 3)
     playerY = math.clamp(
         playerY,
-        TUNING.HUD_HEIGHT + scaledPlayerHeight / 2,
+        TUNING.HUD_HEIGHT + playerImageHeight / 2,
         240 - scaledPlayerHeight / 3
     )
     playerSprite:moveTo(playerX, playerY)
@@ -1499,6 +1742,8 @@ function playdate.update()
 
     if didCrash then
         updateExplosion()
+    elseif selectedUiMode == UI_MODE_OPTIONS[2] or selectedUiMode == UI_MODE_OPTIONS[3] then
+        drawDiegeticAbilities(currentVelocityAngle)
     end
 
     drawHud()
