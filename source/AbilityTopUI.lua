@@ -41,7 +41,7 @@ local function getShieldRingCount(extraRingCharges, iconIndex)
     return ringCount
 end
 
-local function drawShieldStorage(shieldHits, tuning)
+local function drawShieldStorage(shieldHits, tuning, xOffset)
     local iconCount = math.min(shieldHits, 3)
 
     if iconCount <= 0 then
@@ -50,7 +50,7 @@ local function drawShieldStorage(shieldHits, tuning)
 
     local extraRingCharges = math.max(0, math.min(shieldHits, 9) - 3)
     local iconSpacing = tuning.DIEGETIC_SHIELD_ICON_SPACING
-    local firstShieldX = tuning.TOP_UI_SHIELD_FIRST_X
+    local firstShieldX = tuning.TOP_UI_SHIELD_FIRST_X + xOffset
     local shieldWidth, shieldHeight = shieldImage:getSize()
     local previousDrawMode = pdg.getImageDrawMode()
     local previousLineWidth = pdg.getLineWidth()
@@ -61,7 +61,7 @@ local function drawShieldStorage(shieldHits, tuning)
     end
 
     if shieldHits >= tuning.MAX_SHIELD_HITS then
-        firstShieldX = tuning.TOP_UI_SHIELD_FULL_FIRST_X
+        firstShieldX = tuning.TOP_UI_SHIELD_FULL_FIRST_X + xOffset
     end
 
     pdg.setImageDrawMode(pdg.kDrawModeCopy)
@@ -122,20 +122,22 @@ local function drawShieldStorage(shieldHits, tuning)
     pdg.setColor(previousColor)
 end
 
-function AbilityTopUI.draw(dashProgress, dashIsReady, shrinkProgress, shieldHits, tuning)
+function AbilityTopUI.draw(dashProgress, dashIsReady, shrinkProgress, shieldHits, tuning, xOffset)
+    xOffset = xOffset or 0
+
     drawFramedProgress(
         dashImage,
-        tuning.TOP_UI_DASH_FRAME_X,
+        tuning.TOP_UI_DASH_FRAME_X + xOffset,
         tuning.TOP_UI_ABILITY_FRAME_Y,
         dashProgress,
         dashIsReady
     )
     drawFramedProgress(
         shrinkImage,
-        tuning.TOP_UI_SHRINK_FRAME_X,
+        tuning.TOP_UI_SHRINK_FRAME_X + xOffset,
         tuning.TOP_UI_ABILITY_FRAME_Y,
         shrinkProgress,
         true
     )
-    drawShieldStorage(shieldHits, tuning)
+    drawShieldStorage(shieldHits, tuning, xOffset)
 end

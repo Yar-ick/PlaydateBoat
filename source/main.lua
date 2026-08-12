@@ -48,7 +48,10 @@ local playerImagetable = pdg.imagetable.new("images/Boat")
 local playerImagetableSize = playerImagetable:getLength()
 local explosionImagetable = pdg.imagetable.new("images/Explosion")
 local rockExplosionImagetable = pdg.imagetable.new("images/RockExplosion")
-local mainMenuBackgroundImage = pdg.image.new("images/MainMenuBackground")
+local mainMenuImages = {
+    background = pdg.image.new("images/MainMenuBackground"),
+    hud = pdg.image.new("images/MainMenuHud")
+}
 local backgroundHUDImage = pdg.image.new("images/BackgroundHUD")
 local speedometerImage = pdg.image.new("images/Speedometer")
 local speedometerNeedleImage = pdg.image.new("images/SpeedometerNeedle")
@@ -371,6 +374,7 @@ local dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUp
 local dashUiProgress = 1
 local dashUiIsDraining = false
 local speedometerNeedleAngle = TUNING.SPEEDOMETER_MIN_ANGLE
+local hudSlideProgress = 0
 local presentationElapsedMilliseconds = 0
 local crashReturnDelayElapsedMilliseconds = 0
 local waitingCrankMovement = 0
@@ -411,7 +415,7 @@ end
 
 -- pdc converts the colorful source PNG to Playdate's 1-bit format. Its alpha
 -- channel leaves the lower river opening transparent so the water remains visible.
-local mainMenuBackgroundSprite = pdg.sprite.new(mainMenuBackgroundImage)
+local mainMenuBackgroundSprite = pdg.sprite.new(mainMenuImages.background)
 mainMenuBackgroundSprite:moveTo(200, TUNING.MAIN_MENU_BACKGROUND_CENTER_Y)
 mainMenuBackgroundSprite:setZIndex(TUNING.MAIN_MENU_Z_INDEX)
 mainMenuBackgroundSprite:add()
@@ -1359,11 +1363,15 @@ local function updateSpeedometerNeedle(dashSpeed)
 end
 
 local function drawHud()
-    backgroundHUDImage:draw(0, 0)
-    local speedometerX <const> = 2
+    local easedHudProgress = hudSlideProgress * hudSlideProgress * (3 - 2 * hudSlideProgress)
+    local hiddenHudProgress = 1 - easedHudProgress
+    local leftHudOffsetX = math.floor(TUNING.HUD_LEFT_HIDDEN_OFFSET_X * hiddenHudProgress + 0.5)
+    local rightHudOffsetX = math.floor(TUNING.HUD_RIGHT_HIDDEN_OFFSET_X * hiddenHudProgress + 0.5)
+    local speedometerX = 2 + leftHudOffsetX
     local speedometerY <const> = 2
     local speedometerWidth, speedometerHeight = speedometerImage:getSize()
 
+    backgroundHUDImage:draw(rightHudOffsetX, 0)
     speedometerImage:draw(speedometerX, speedometerY)
     speedometerNeedleImage:drawRotated(
         speedometerX + speedometerWidth / 2,
@@ -1377,7 +1385,8 @@ local function drawHud()
             dashCooldownRemainingMilliseconds <= 0,
             shrinkUiProgress,
             shieldHitsRemaining,
-            TUNING
+            TUNING,
+            leftHudOffsetX
         )
     end
 
@@ -1390,9 +1399,9 @@ local function drawHud()
     end
 
     local scoreTextWidth = getFixedWidthNumberWidth(scoreText)
-    local scoreX = 400 - scoreTextWidth - 2
+    local scoreX = 400 - scoreTextWidth - 2 + rightHudOffsetX
     local starImageWidth = starImage:getSize()
-    local starX = 400 - scoreTextWidth - starImageWidth - 5
+    local starX = 400 - scoreTextWidth - starImageWidth - 5 + rightHudOffsetX
 
     local coinText = tostring(playerCoins)
     emptyNumberDigits = 3 - string.len(coinText)
@@ -1404,7 +1413,7 @@ local function drawHud()
     local coinTextWidth = getFixedWidthNumberWidth(coinText)
     local coinImage = coinImagetable:getImage(1)
     local coinImageWidth = coinImage:getSize()
-    local coinTextX = 400 - coinTextWidth - 2
+    local coinTextX = 400 - coinTextWidth - 2 + rightHudOffsetX
     local coinX = coinTextX - coinImageWidth - 3
     local previousColor = pdg.getColor()
 
@@ -1576,6 +1585,7 @@ local function prepareNewRun()
     dashUiProgress = 1
     dashUiIsDraining = false
     speedometerNeedleAngle = TUNING.SPEEDOMETER_MIN_ANGLE
+    hudSlideProgress = 0
     boatEngineSoundRate = TUNING.ENGINE_MIN_WORLD_RATE
     boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
     waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
@@ -1632,6 +1642,7 @@ end
 local function beginWaitingForCrank()
     BoatGameState = GameState.WAITING_FOR_CRANK
     presentationElapsedMilliseconds = 0
+    hudSlideProgress = 0
     waitingCrankMovement = 0
     mainMenuBackgroundSprite:setVisible(false)
     setWaterTransform(waterScrollX, TUNING.WATER_BACKGROUND_Y_OFFSET)
@@ -1768,6 +1779,21 @@ function playdate.update()
         end
     end
 
+    if BoatGameState == GameState.WAITING_FOR_CRANK
+        or BoatGameState == GameState.ALIGNING_TO_CRANK
+        or BoatGameState == GameState.ALIVE
+    then
+        hudSlideProgress = math.min(
+            1,
+            hudSlideProgress + elapsedMilliseconds / TUNING.HUD_SLIDE_DURATION_MS
+        )
+    elseif BoatGameState == GameState.CRASH_REWIND then
+        hudSlideProgress = math.max(
+            0,
+            hudSlideProgress - elapsedMilliseconds / TUNING.HUD_SLIDE_DURATION_MS
+        )
+    end
+
     if BoatGameState == GameState.MAIN_MENU then
         stopBoatEngineSound()
         stopWaterFlowSound()
@@ -1781,6 +1807,9 @@ function playdate.update()
             TUNING.MAIN_MENU_WATER_CENTER_Y
         )
         pdg.sprite.update()
+        mainMenuImages.hud:draw(0, 0)
+        pdg.drawText("Start", TUNING.MAIN_MENU_START_TEXT_X, TUNING.MAIN_MENU_START_TEXT_Y)
+        pdg.drawText("Upgrade", TUNING.MAIN_MENU_UPGRADE_TEXT_X, TUNING.MAIN_MENU_UPGRADE_TEXT_Y)
 
         if pd.buttonJustPressed(pd.kButtonA) then
             startLaunchTransition()
@@ -1921,6 +1950,7 @@ function playdate.update()
         setWaterTransform(waterScrollX + rewindDisplacement, TUNING.WATER_BACKGROUND_Y_OFFSET)
         pdg.sprite.update()
         updateExplosion()
+        drawHud()
 
         if crashDelayFinished and remainingObjectCount == 0 then
             beginReturnToMenu()
@@ -2097,7 +2127,5 @@ function playdate.update()
         drawDiegeticAbilities(currentVelocityAngle)
     end
 
-    if didCrash == false then
-        drawHud()
-    end
+    drawHud()
 end
