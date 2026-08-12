@@ -379,6 +379,7 @@ local presentationElapsedMilliseconds = 0
 local crashReturnDelayElapsedMilliseconds = 0
 local waitingCrankMovement = 0
 local startRotationAngle = 180
+local launchVisualAngle = 180
 
 local scoreTimer = pd.timer.new(1000, function()
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
@@ -1586,6 +1587,7 @@ local function prepareNewRun()
     dashUiIsDraining = false
     speedometerNeedleAngle = TUNING.SPEEDOMETER_MIN_ANGLE
     hudSlideProgress = 0
+    launchVisualAngle = 180
     boatEngineSoundRate = TUNING.ENGINE_MIN_WORLD_RATE
     boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
     waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
@@ -1633,6 +1635,7 @@ end
 local function startLaunchTransition()
     BoatGameState = GameState.LAUNCHING
     presentationElapsedMilliseconds = 0
+    launchVisualAngle = 180
     clearWakeLines()
     startBoatEngineSound()
     startWaterFlowSound()
@@ -1649,16 +1652,15 @@ local function beginWaitingForCrank()
     playerX = TUNING.GAMEPLAY_ENTRY_BOAT_X
     playerY = TUNING.GAMEPLAY_ENTRY_BOAT_Y
     playerSprite:moveTo(playerX, playerY)
-    clearWakeLines()
-    stopBoatEngineSound()
-    stopWaterFlowSound()
+    startBoatEngineSound()
+    startWaterFlowSound()
     startMenuMusic()
 end
 
 local function beginStartRotation()
     BoatGameState = GameState.ALIGNING_TO_CRANK
     presentationElapsedMilliseconds = 0
-    startRotationAngle = 180
+    startRotationAngle = launchVisualAngle
     startGameplayLoopSounds()
 end
 
@@ -1819,6 +1821,8 @@ function playdate.update()
     end
 
     if BoatGameState == GameState.LAUNCHING then
+        startBoatEngineSound()
+        startWaterFlowSound()
         presentationElapsedMilliseconds += elapsedMilliseconds
         local transitionProgress = smoothstep(
             presentationElapsedMilliseconds / TUNING.MENU_LAUNCH_DURATION_MS
@@ -1834,19 +1838,91 @@ function playdate.update()
             TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
             math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
         )
-        local inverseTransitionProgress = 1 - transitionProgress
+        local curve = TUNING.MENU_LAUNCH_CURVE
+        local curveProgress
+        local inverseCurveProgress
+        local launchVelocityX
+        local launchVelocityY
+
+        if transitionProgress < curve.SPLIT then
+            curveProgress = transitionProgress / curve.SPLIT
+            inverseCurveProgress = 1 - curveProgress
+            playerX = inverseCurveProgress ^ 3 * TUNING.MAIN_MENU_BOAT_X
+                + 3 * inverseCurveProgress ^ 2 * curveProgress * curve.FIRST_CONTROL_X
+                + 3 * inverseCurveProgress * curveProgress ^ 2 * curve.TURN_CONTROL_X
+                + curveProgress ^ 3 * curve.TURN_X
+            playerY = inverseCurveProgress ^ 3 * TUNING.MAIN_MENU_BOAT_Y
+                + 3 * inverseCurveProgress ^ 2 * curveProgress * curve.FIRST_CONTROL_Y
+                + 3 * inverseCurveProgress * curveProgress ^ 2 * curve.TURN_CONTROL_Y
+                + curveProgress ^ 3 * curve.TURN_Y
+            launchVelocityX = 3 * inverseCurveProgress ^ 2
+                    * (curve.FIRST_CONTROL_X - TUNING.MAIN_MENU_BOAT_X)
+                + 6 * inverseCurveProgress * curveProgress
+                    * (curve.TURN_CONTROL_X - curve.FIRST_CONTROL_X)
+                + 3 * curveProgress ^ 2 * (curve.TURN_X - curve.TURN_CONTROL_X)
+            launchVelocityY = 3 * inverseCurveProgress ^ 2
+                    * (curve.FIRST_CONTROL_Y - TUNING.MAIN_MENU_BOAT_Y)
+                + 6 * inverseCurveProgress * curveProgress
+                    * (curve.TURN_CONTROL_Y - curve.FIRST_CONTROL_Y)
+                + 3 * curveProgress ^ 2 * (curve.TURN_Y - curve.TURN_CONTROL_Y)
+        else
+            curveProgress = (transitionProgress - curve.SPLIT) / (1 - curve.SPLIT)
+            inverseCurveProgress = 1 - curveProgress
+            playerX = inverseCurveProgress ^ 3 * curve.TURN_X
+                + 3 * inverseCurveProgress ^ 2 * curveProgress * curve.SECOND_CONTROL_X
+                + 3 * inverseCurveProgress * curveProgress ^ 2 * curve.FINAL_CONTROL_X
+                + curveProgress ^ 3 * TUNING.GAMEPLAY_ENTRY_BOAT_X
+            playerY = inverseCurveProgress ^ 3 * curve.TURN_Y
+                + 3 * inverseCurveProgress ^ 2 * curveProgress * curve.SECOND_CONTROL_Y
+                + 3 * inverseCurveProgress * curveProgress ^ 2 * curve.FINAL_CONTROL_Y
+                + curveProgress ^ 3 * TUNING.GAMEPLAY_ENTRY_BOAT_Y
+            launchVelocityX = 3 * inverseCurveProgress ^ 2
+                    * (curve.SECOND_CONTROL_X - curve.TURN_X)
+                + 6 * inverseCurveProgress * curveProgress
+                    * (curve.FINAL_CONTROL_X - curve.SECOND_CONTROL_X)
+                + 3 * curveProgress ^ 2 * (TUNING.GAMEPLAY_ENTRY_BOAT_X - curve.FINAL_CONTROL_X)
+            launchVelocityY = 3 * inverseCurveProgress ^ 2
+                    * (curve.SECOND_CONTROL_Y - curve.TURN_Y)
+                + 6 * inverseCurveProgress * curveProgress
+                    * (curve.FINAL_CONTROL_Y - curve.SECOND_CONTROL_Y)
+                + 3 * curveProgress ^ 2 * (TUNING.GAMEPLAY_ENTRY_BOAT_Y - curve.FINAL_CONTROL_Y)
+        end
+
+        local launchTargetAngle = math.normalizeAngle(
+            math.deg(math.atan2(launchVelocityY, launchVelocityX)) + 90
+        )
+        if transitionProgress >= curve.FINAL_ROTATION_START then
+            local finalRotationProgress = smoothstep(
+                (transitionProgress - curve.FINAL_ROTATION_START)
+                    / (1 - curve.FINAL_ROTATION_START)
+            )
+            local finalRotationDelta = (TUNING.GAMEPLAY_ENTRY_BOAT_ANGLE
+                - launchTargetAngle + 180) % 360 - 180
+            launchTargetAngle = math.normalizeAngle(
+                launchTargetAngle + finalRotationDelta * finalRotationProgress
+            )
+        end
+
+        local launchRotationDelta = (launchTargetAngle - launchVisualAngle + 180) % 360 - 180
+        local launchRotationInterpolation = 1 - math.exp(
+            -TUNING.MENU_BOAT_ROTATION_RESPONSE_PER_SECOND * elapsedMilliseconds / 1000
+        )
+        launchVisualAngle = math.normalizeAngle(
+            launchVisualAngle + launchRotationDelta * launchRotationInterpolation
+        )
+        local launchFrameIndex = math.clamp(
+            math.ceil(launchVisualAngle / 7.5),
+            1,
+            playerImagetableSize
+        )
 
         mainMenuBackgroundSprite:moveTo(200, menuY)
         setWaterTransform(waterScrollX + initialWorldDisplacement, waterY)
-        playerX = TUNING.MAIN_MENU_BOAT_X
-            + (TUNING.GAMEPLAY_ENTRY_BOAT_X - TUNING.MAIN_MENU_BOAT_X) * transitionProgress
-        playerY = inverseTransitionProgress * inverseTransitionProgress * TUNING.MAIN_MENU_BOAT_Y
-            + 2 * inverseTransitionProgress * transitionProgress * TUNING.MENU_LAUNCH_BOAT_DIP_Y
-            + transitionProgress * transitionProgress * TUNING.GAMEPLAY_ENTRY_BOAT_Y
+        playerSprite:setImage(playerImagetable:getImage(launchFrameIndex))
         playerSprite:moveTo(playerX, playerY)
         updateWakeLines(
-            180,
-            TUNING.MAIN_MENU_BOAT_FRAME_INDEX,
+            launchVisualAngle,
+            launchFrameIndex,
             false,
             initialWorldDisplacement
         )
@@ -1862,8 +1938,8 @@ function playdate.update()
 
     if BoatGameState == GameState.WAITING_FOR_CRANK then
         velocityIncreaseTimer:pause()
-        stopBoatEngineSound()
-        stopWaterFlowSound()
+        startBoatEngineSound()
+        startWaterFlowSound()
         startMenuMusic()
         local initialWorldDisplacement = math.max(
             TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
@@ -1874,7 +1950,28 @@ function playdate.update()
             TUNING.WATER_BACKGROUND_Y_OFFSET
         )
         waitingCrankMovement += math.abs(pd.getCrankChange())
+        local waitingRotationDelta = (TUNING.GAMEPLAY_ENTRY_BOAT_ANGLE
+            - launchVisualAngle + 180) % 360 - 180
+        local waitingRotationInterpolation = 1 - math.exp(
+            -TUNING.MENU_BOAT_ROTATION_RESPONSE_PER_SECOND * elapsedMilliseconds / 1000
+        )
+        launchVisualAngle = math.normalizeAngle(
+            launchVisualAngle + waitingRotationDelta * waitingRotationInterpolation
+        )
+        local waitingFrameIndex = math.clamp(
+            math.ceil(launchVisualAngle / 7.5),
+            1,
+            playerImagetableSize
+        )
+        playerSprite:setImage(playerImagetable:getImage(waitingFrameIndex))
+        updateWakeLines(
+            launchVisualAngle,
+            waitingFrameIndex,
+            false,
+            initialWorldDisplacement
+        )
         pdg.sprite.update()
+        drawWakeLines()
         drawHud()
         pd.ui.crankIndicator:draw()
 
@@ -1888,6 +1985,7 @@ function playdate.update()
     end
 
     if BoatGameState == GameState.ALIGNING_TO_CRANK then
+        startGameplayLoopSounds()
         presentationElapsedMilliseconds += elapsedMilliseconds
         local rotationProgress = smoothstep(
             presentationElapsedMilliseconds / TUNING.START_ROTATION_DURATION_MS
@@ -1912,7 +2010,14 @@ function playdate.update()
             TUNING.WATER_BACKGROUND_Y_OFFSET
         )
         playerSprite:setImage(playerImagetable:getImage(playerFrameIndex))
+        updateWakeLines(
+            currentRotationAngle,
+            playerFrameIndex,
+            false,
+            initialWorldDisplacement
+        )
         pdg.sprite.update()
+        drawWakeLines()
         drawHud()
 
         if presentationElapsedMilliseconds >= TUNING.START_ROTATION_DURATION_MS then
