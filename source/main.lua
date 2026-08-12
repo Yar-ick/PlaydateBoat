@@ -13,6 +13,7 @@ import "SpeedReductionCollectable"
 import "InteractiveSpawn"
 import "DecorationManager"
 import "AbilityTopUI"
+import "UpgradeMenuUI"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -38,7 +39,8 @@ local GameState = {
     ALIGNING_TO_CRANK = 4,
     ALIVE = 5,
     CRASH_REWIND = 6,
-    RETURNING_TO_MENU = 7
+    RETURNING_TO_MENU = 7,
+    UPGRADE_MENU = 8
 }
 
 local BoatGameState = GameState.MAIN_MENU
@@ -794,6 +796,13 @@ local function updateDashInertia(elapsedMilliseconds)
 end
 
 local selectedUpgradeAbility = "shield"
+local upgradeMenuState = {
+    progress = 0,
+    closing = false,
+    selectionIndex = 1,
+    message = nil,
+    messageRemainingMilliseconds = 0
+}
 local upgradePurchaseMenuItem = nil
 local upgradeAbilityLabels <const> = {
     shield = "Shield",
@@ -852,14 +861,16 @@ local function purchaseAbilityUpgrade(abilityType)
     local level = getAbilityUpgradeLevel(abilityType)
 
     if level >= TUNING.MAX_ABILITY_UPGRADE_LEVEL then
-        showHudMessage("Ability is already max level")
-        return
+        local message = "Ability is already max level"
+        showHudMessage(message)
+        return false, message
     end
 
     local cost = TUNING.ABILITY_UPGRADE_COSTS[abilityType][level + 1]
     if playerCoins < cost then
-        showHudMessage("Need " .. cost .. " coins")
-        return
+        local message = "Need " .. cost .. " coins"
+        showHudMessage(message)
+        return false, message
     end
 
     playerCoins -= cost
@@ -872,7 +883,9 @@ local function purchaseAbilityUpgrade(abilityType)
     markProgressChanged()
     saveProgress()
     refreshUpgradeMenuTitles()
-    showHudMessage("Ability upgraded to level " .. (level + 1))
+    local message = "Upgraded to level " .. (level + 1)
+    showHudMessage(message)
+    return true, message
 end
 
 local systemMenu = pd.getSystemMenu()
@@ -1796,6 +1809,97 @@ function playdate.update()
         )
     end
 
+    if BoatGameState == GameState.UPGRADE_MENU then
+        stopBoatEngineSound()
+        stopWaterFlowSound()
+        startMenuMusic()
+
+        local initialWorldDisplacement = math.max(
+            TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
+            math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
+        )
+        setWaterTransform(
+            waterScrollX + initialWorldDisplacement,
+            TUNING.MAIN_MENU_WATER_CENTER_Y
+        )
+
+        if upgradeMenuState.closing then
+            upgradeMenuState.progress = math.max(
+                0,
+                upgradeMenuState.progress
+                    - elapsedMilliseconds / TUNING.UPGRADE_MENU_SLIDE_DURATION_MS
+            )
+        else
+            upgradeMenuState.progress = math.min(
+                1,
+                upgradeMenuState.progress
+                    + elapsedMilliseconds / TUNING.UPGRADE_MENU_SLIDE_DURATION_MS
+            )
+        end
+
+        if upgradeMenuState.messageRemainingMilliseconds > 0 then
+            upgradeMenuState.messageRemainingMilliseconds -= elapsedMilliseconds
+            if upgradeMenuState.messageRemainingMilliseconds <= 0 then
+                upgradeMenuState.message = nil
+            end
+        end
+
+        if upgradeMenuState.progress >= 1 and upgradeMenuState.closing == false then
+            if pd.buttonJustPressed(pd.kButtonUp) or pd.buttonJustPressed(pd.kButtonLeft) then
+                upgradeMenuState.selectionIndex -= 1
+                if upgradeMenuState.selectionIndex < 1 then
+                    upgradeMenuState.selectionIndex = #UpgradeMenuUI.ABILITIES
+                end
+                upgradeMenuState.message = nil
+            elseif pd.buttonJustPressed(pd.kButtonDown) or pd.buttonJustPressed(pd.kButtonRight) then
+                upgradeMenuState.selectionIndex = upgradeMenuState.selectionIndex
+                    % #UpgradeMenuUI.ABILITIES + 1
+                upgradeMenuState.message = nil
+            end
+
+            local selectedAbility = UpgradeMenuUI.ABILITIES[upgradeMenuState.selectionIndex]
+            selectedUpgradeAbility = selectedAbility.type
+
+            if pd.buttonJustPressed(pd.kButtonA) then
+                local _, purchaseMessage = purchaseAbilityUpgrade(selectedAbility.type)
+                upgradeMenuState.message = purchaseMessage
+                upgradeMenuState.messageRemainingMilliseconds =
+                    TUNING.UPGRADE_MENU_MESSAGE_DURATION_MS
+            elseif pd.buttonJustPressed(pd.kButtonB) then
+                upgradeMenuState.closing = true
+                upgradeMenuState.message = nil
+            end
+        end
+
+        pdg.sprite.update()
+        mainMenuImages.hud:draw(0, 0)
+        pdg.drawText("Start", TUNING.MAIN_MENU_START_TEXT_X, TUNING.MAIN_MENU_START_TEXT_Y)
+        pdg.drawText("Upgrade", TUNING.MAIN_MENU_UPGRADE_TEXT_X, TUNING.MAIN_MENU_UPGRADE_TEXT_Y)
+
+        UpgradeMenuUI.update(elapsedMilliseconds)
+        local upgradeMenuProgress = smoothstep(upgradeMenuState.progress)
+        UpgradeMenuUI.draw(
+            math.floor(-240 * (1 - upgradeMenuProgress)),
+            upgradeMenuState.selectionIndex,
+            {
+                dash = dashUpgradeLevel,
+                shield = shieldUpgradeLevel,
+                shrink = shrinkUpgradeLevel,
+                speedReduction = speedReductionUpgradeLevel
+            },
+            playerCoins,
+            upgradeMenuState.message,
+            TUNING
+        )
+
+        if upgradeMenuState.closing and upgradeMenuState.progress <= 0 then
+            BoatGameState = GameState.MAIN_MENU
+            upgradeMenuState.closing = false
+        end
+
+        return
+    end
+
     if BoatGameState == GameState.MAIN_MENU then
         stopBoatEngineSound()
         stopWaterFlowSound()
@@ -1815,6 +1919,11 @@ function playdate.update()
 
         if pd.buttonJustPressed(pd.kButtonA) then
             startLaunchTransition()
+        elseif pd.buttonJustPressed(pd.kButtonB) then
+            BoatGameState = GameState.UPGRADE_MENU
+            upgradeMenuState.progress = 0
+            upgradeMenuState.closing = false
+            upgradeMenuState.message = nil
         end
 
         return
