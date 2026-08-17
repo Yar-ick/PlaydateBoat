@@ -11,6 +11,54 @@ GameplayTuning = {
     MAIN_MENU_START_TEXT_Y = 192,
     MAIN_MENU_UPGRADE_TEXT_X = 337,
     MAIN_MENU_UPGRADE_TEXT_Y = 218,
+    MAIN_MENU_HUD_SLIDE_DURATION_MS = 600,
+    MAIN_MENU_HUD_LEFT_HIDDEN_OFFSET_X = -170,
+    MAIN_MENU_HUD_RIGHT_HIDDEN_OFFSET_X = 140,
+    DIFFICULTY_MENU_PANEL_X = 5,
+    DIFFICULTY_MENU_PANEL_Y = 6,
+    DIFFICULTY_MENU_PANEL_WIDTH = 153,
+    DIFFICULTY_MENU_PANEL_HEIGHT = 228,
+    DIFFICULTY_MODES = {
+        {
+            ID = "casual",
+            TITLE = "CASUAL",
+            DESCRIPTION_LINES = {
+                "Frequent abilities",
+                "Standard rewards",
+                "1 coin per pickup"
+            },
+            COIN_REWARD = 1,
+            ABILITY_SPAWN_CHANCE_MULTIPLIER = 1,
+            ABILITY_SPAWN_INTERVAL_MULTIPLIER = 1
+        },
+        {
+            ID = "normal",
+            TITLE = "NORMAL",
+            DESCRIPTION_LINES = {
+                "Fewer abilities",
+                "Better rewards",
+                "2 coins per pickup"
+            },
+            COIN_REWARD = 2,
+            ABILITY_SPAWN_CHANCE_MULTIPLIER = 0.65,
+            ABILITY_SPAWN_INTERVAL_MULTIPLIER = 1.25
+        },
+        {
+            ID = "hardcore",
+            TITLE = "HARDCORE",
+            DESCRIPTION_LINES = {
+                "Rare abilities",
+                "Highest rewards",
+                "3 coins per pickup"
+            },
+            COIN_REWARD = 3,
+            ABILITY_SPAWN_CHANCE_MULTIPLIER = 0.25,
+            ABILITY_SPAWN_INTERVAL_MULTIPLIER = 2,
+            UNLOCK_MODE_ID = "normal",
+            UNLOCK_MODE_TITLE = "NORMAL",
+            UNLOCK_SCORE = 100000
+        }
+    },
     UPGRADE_MENU_SLIDE_DURATION_MS = 500,
     UPGRADE_MENU_MESSAGE_DURATION_MS = 1500,
     UPGRADE_LEVEL_BLINK_INTERVAL_MS = 450,

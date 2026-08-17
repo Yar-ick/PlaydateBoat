@@ -16,6 +16,9 @@ import "AbilityTopUI"
 import "UpgradeMenuUI"
 import "ScreenShake"
 import "WakeLayer"
+import "Difficulty"
+import "DifficultyMenuUI"
+import "MainMenuHUDAnimation"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -287,6 +290,8 @@ if type(savedProgress) ~= "table" then
     savedProgress = {}
 end
 
+Difficulty.initialize(savedProgress, TUNING)
+
 local savedUpgrades = savedProgress.upgrades
 if type(savedUpgrades) ~= "table" then
     savedUpgrades = {}
@@ -361,6 +366,7 @@ local function saveProgress()
         coins = playerCoins,
         audioMode = selectedAudioMode,
         uiMode = selectedUiMode,
+        difficulty = Difficulty.getSaveData(),
         upgrades = {
             shield = shieldUpgradeLevel,
             shrink = shrinkUpgradeLevel,
@@ -584,7 +590,7 @@ local function isCollectableAvailable(collectableType)
 end
 
 local function onCoinCollected()
-    playerCoins += 1
+    playerCoins += Difficulty.getCoinReward()
     playSoundOneShot(coinPickupSoundPlayer)
     markProgressChanged()
     saveProgress()
@@ -639,13 +645,13 @@ for i = 1, #collectableTypes do
 
     local config = TUNING.COLLECTABLE_SPAWN_CONFIG[collectableType]
     collectableSpawnRemainingMilliseconds[collectableType] =
-        math.random(config.minimumIntervalMs, config.maximumIntervalMs)
+        Difficulty.getRandomCollectableInterval(config, collectableType)
 end
 
 local function resetCollectableSpawnCountdown(collectableType)
     local config = TUNING.COLLECTABLE_SPAWN_CONFIG[collectableType]
     collectableSpawnRemainingMilliseconds[collectableType] =
-        math.random(config.minimumIntervalMs, config.maximumIntervalMs)
+        Difficulty.getRandomCollectableInterval(config, collectableType)
 end
 
 local function spawnCollectable(collectable)
@@ -692,7 +698,9 @@ local function updateCollectables(elapsedMilliseconds, worldDisplacement)
                 local config = TUNING.COLLECTABLE_SPAWN_CONFIG[collectableType]
                 resetCollectableSpawnCountdown(collectableType)
 
-                if math.random(100) <= config.spawnChancePercent then
+                if math.random() * 100
+                    <= Difficulty.getCollectableSpawnChance(config, collectableType)
+                then
                     spawnCollectable(collectable)
                 end
             end
@@ -1762,6 +1770,8 @@ local function enterMainMenu()
     BoatGameState = GameState.MAIN_MENU
     presentationElapsedMilliseconds = 0
     waitingCrankMovement = 0
+    MainMenuHUDAnimation.show()
+    lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
 
     mainMenuBackgroundSprite:setVisible(true)
     mainMenuBackgroundSprite:moveTo(200, TUNING.MAIN_MENU_BACKGROUND_CENTER_Y)
@@ -1778,6 +1788,7 @@ local function startLaunchTransition()
     BoatGameState = GameState.LAUNCHING
     presentationElapsedMilliseconds = 0
     launchVisualAngle = 180
+    resetCollectables()
     clearWakeLines()
     startBoatEngineSound()
     startWaterFlowSound()
@@ -1999,9 +2010,6 @@ function playdate.update()
         end
 
         pdg.sprite.update()
-        mainMenuImages.hud:draw(0, 0)
-        pdg.drawText("Start", TUNING.MAIN_MENU_START_TEXT_X, TUNING.MAIN_MENU_START_TEXT_Y)
-        pdg.drawText("Upgrade", TUNING.MAIN_MENU_UPGRADE_TEXT_X, TUNING.MAIN_MENU_UPGRADE_TEXT_Y)
 
         UpgradeMenuUI.update(elapsedMilliseconds)
         local upgradeMenuProgress = smoothstep(upgradeMenuState.progress)
@@ -2022,6 +2030,7 @@ function playdate.update()
         if upgradeMenuState.closing and upgradeMenuState.progress <= 0 then
             BoatGameState = GameState.MAIN_MENU
             upgradeMenuState.closing = false
+            MainMenuHUDAnimation.show()
         end
 
         return
@@ -2039,19 +2048,66 @@ function playdate.update()
             waterScrollX + initialWorldDisplacement,
             TUNING.MAIN_MENU_WATER_CENTER_Y
         )
-        pdg.sprite.update()
-        mainMenuImages.hud:draw(0, 0)
-        pdg.drawText("Start", TUNING.MAIN_MENU_START_TEXT_X, TUNING.MAIN_MENU_START_TEXT_Y)
-        pdg.drawText("Upgrade", TUNING.MAIN_MENU_UPGRADE_TEXT_X, TUNING.MAIN_MENU_UPGRADE_TEXT_Y)
+        local completedMenuAction = MainMenuHUDAnimation.update(elapsedMilliseconds, TUNING)
+        local leftHudOffsetX, rightHudOffsetX = MainMenuHUDAnimation.getOffsets(TUNING)
 
-        if pd.buttonJustPressed(pd.kButtonA) then
+        pdg.sprite.update()
+        mainMenuImages.hud:draw(rightHudOffsetX, 0)
+        pdg.drawText(
+            "Start",
+            TUNING.MAIN_MENU_START_TEXT_X + rightHudOffsetX,
+            TUNING.MAIN_MENU_START_TEXT_Y
+        )
+        pdg.drawText(
+            "Upgrade",
+            TUNING.MAIN_MENU_UPGRADE_TEXT_X + rightHudOffsetX,
+            TUNING.MAIN_MENU_UPGRADE_TEXT_Y
+        )
+
+        DifficultyMenuUI.draw(
+            Difficulty.getSelectedMode(),
+            Difficulty.getSelectedModeIndex(),
+            Difficulty.getModeCount(),
+            Difficulty.getSelectedHighScore(),
+            Difficulty.isSelectedModeUnlocked(),
+            TUNING,
+            leftHudOffsetX
+        )
+
+        if completedMenuAction == "start" then
             startLaunchTransition()
-        elseif pd.buttonJustPressed(pd.kButtonB) then
+        elseif completedMenuAction == "upgrade" then
             BoatGameState = GameState.UPGRADE_MENU
             upgradeMenuState.progress = 0
             upgradeMenuState.closing = false
             upgradeMenuState.message = nil
             playSoundOneShot(openUpgradeMenuSoundPlayer)
+        elseif MainMenuHUDAnimation.isInteractive()
+            and pd.buttonJustPressed(pd.kButtonLeft)
+        then
+            Difficulty.select(-1)
+            markProgressChanged()
+            saveProgress()
+            playSoundOneShot(selectAbilitySoundPlayer)
+        elseif MainMenuHUDAnimation.isInteractive()
+            and pd.buttonJustPressed(pd.kButtonRight)
+        then
+            Difficulty.select(1)
+            markProgressChanged()
+            saveProgress()
+            playSoundOneShot(selectAbilitySoundPlayer)
+        elseif MainMenuHUDAnimation.isInteractive()
+            and pd.buttonJustPressed(pd.kButtonA)
+        then
+            if Difficulty.isSelectedModeUnlocked() then
+                MainMenuHUDAnimation.hide("start")
+            else
+                playSoundOneShot(noUpgradeSoundPlayer)
+            end
+        elseif MainMenuHUDAnimation.isInteractive()
+            and pd.buttonJustPressed(pd.kButtonB)
+        then
+            MainMenuHUDAnimation.hide("upgrade")
         end
 
         return
@@ -2441,6 +2497,11 @@ function playdate.update()
     local didCrash = handlePlayerCollisions(collisions, length)
 
     if didCrash then
+        if Difficulty.recordScore(playerScore) then
+            markProgressChanged()
+            saveProgress()
+        end
+
         BoatGameState = GameState.CRASH_REWIND
         presentationElapsedMilliseconds = 0
         crashReturnDelayElapsedMilliseconds = 0
