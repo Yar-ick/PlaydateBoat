@@ -14,6 +14,7 @@ import "InteractiveSpawn"
 import "DecorationManager"
 import "AbilityTopUI"
 import "UpgradeMenuUI"
+import "ScreenShake"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -1539,6 +1540,7 @@ end
 local function destroyRock(rock)
     startRockExplosion(rock.x, rock.y)
     playRockExplosionSound()
+    ScreenShake.start(TUNING.ROCK_BREAK_SCREEN_SHAKE)
     rock.active = false
     rock:setVisible(false)
 end
@@ -1663,6 +1665,7 @@ local function rewindGameplayWorld(elapsedMilliseconds, displacement)
 end
 
 local function prepareNewRun()
+    ScreenShake.reset()
     xVelocity = 0
     yVelocity = 0
     targetXVelocity = 0
@@ -1875,6 +1878,7 @@ function playdate.update()
     -- elapsedMilliseconds = math.min(elapsedMilliseconds, TUNING.MAX_GAMEPLAY_FRAME_DURATION_MS)
 
     pd.timer.updateTimers()
+    ScreenShake.update(elapsedMilliseconds)
 
     if BoatGameState == GameState.WAITING_FOR_CRANK
         or BoatGameState == GameState.ALIGNING_TO_CRANK
@@ -2250,8 +2254,10 @@ function playdate.update()
         )
 
         setWaterTransform(waterScrollX + rewindDisplacement, TUNING.WATER_BACKGROUND_Y_OFFSET)
+        ScreenShake.applyDrawOffset()
         pdg.sprite.update()
         updateExplosion()
+        ScreenShake.clearDrawOffset()
         drawHud()
 
         if crashDelayFinished and remainingObjectCount == 0 then
@@ -2411,6 +2417,7 @@ function playdate.update()
         clearWakeLines()
         startExplosion(playerX, playerY)
         playSoundOneShot(boatExplosionSoundPlayer)
+        ScreenShake.start(TUNING.DEATH_SCREEN_SHAKE)
     else
         updateWakeLines(
             currentVelocityAngle,
@@ -2420,6 +2427,7 @@ function playdate.update()
         )
     end
 
+    ScreenShake.applyDrawOffset()
     pdg.sprite.update()
     drawWakeLines()
 
@@ -2429,5 +2437,6 @@ function playdate.update()
         drawDiegeticAbilities(currentVelocityAngle)
     end
 
+    ScreenShake.clearDrawOffset()
     drawHud()
 end
