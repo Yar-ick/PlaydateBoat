@@ -19,6 +19,7 @@ import "WakeLayer"
 import "Difficulty"
 import "DifficultyMenuUI"
 import "MainMenuHUDAnimation"
+import "Steamboat"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -271,12 +272,14 @@ local function startGameplayLoopSounds()
     startBoatEngineSound()
     startWaterFlowSound()
     startGameplayMusic()
+    Steamboat.resumeSounds()
 end
 
 local function stopGameplayLoopSounds()
     stopBoatEngineSound()
     stopWaterFlowSound()
     pauseGameMusic()
+    Steamboat.stopSounds()
 end
 
 local explosionX, explosionY = 0, 0
@@ -477,8 +480,7 @@ for i = 1, 2 do
     waterSprites[i] = waterSprite
 end
 
--- pdc converts the colorful source PNG to Playdate's 1-bit format. Its alpha
--- channel leaves the lower river opening transparent so the water remains visible.
+-- The lower river opening stays transparent so the animated water remains visible.
 local mainMenuBackgroundSprite = pdg.sprite.new(mainMenuImages.background)
 mainMenuBackgroundSprite:moveTo(200, TUNING.MAIN_MENU_BACKGROUND_CENTER_Y)
 mainMenuBackgroundSprite:setZIndex(TUNING.MAIN_MENU_Z_INDEX)
@@ -868,26 +870,12 @@ local function updateDashInertia(elapsedMilliseconds)
     end
 end
 
-local selectedUpgradeAbility = "shield"
 local upgradeMenuState = {
     progress = 0,
     closing = false,
     selectionIndex = 1,
     message = nil,
     messageRemainingMilliseconds = 0
-}
-local upgradePurchaseMenuItem = nil
-local upgradeAbilityLabels <const> = {
-    shield = "Shield",
-    shrink = "Shrink",
-    speedReduction = "Slowdown",
-    dash = "Dash"
-}
-local upgradeAbilityTypesByLabel <const> = {
-    Shield = "shield",
-    Shrink = "shrink",
-    Slowdown = "speedReduction",
-    Dash = "dash"
 }
 
 local function getAbilityUpgradeLevel(abilityType)
@@ -911,27 +899,6 @@ local function setAbilityUpgradeLevel(abilityType, level)
         speedReductionUpgradeLevel = level
     else
         dashUpgradeLevel = level
-    end
-end
-
-local function refreshUpgradeMenuTitles()
-    if upgradePurchaseMenuItem == nil then
-        return
-    end
-
-    local level = getAbilityUpgradeLevel(selectedUpgradeAbility)
-    local label = upgradeAbilityLabels[selectedUpgradeAbility]
-
-    if level >= TUNING.MAX_ABILITY_UPGRADE_LEVEL then
-        upgradePurchaseMenuItem:setTitle(label .. ": MAX")
-    elseif level == TUNING.LOCKED_ABILITY_LEVEL then
-        local cost = TUNING.ABILITY_PURCHASE_COSTS[selectedUpgradeAbility]
-        upgradePurchaseMenuItem:setTitle("Buy " .. label .. " (" .. cost .. "c)")
-    else
-        local cost = TUNING.ABILITY_UPGRADE_COSTS[selectedUpgradeAbility][level + 1]
-        upgradePurchaseMenuItem:setTitle(
-            "Upgrade " .. label .. " L" .. (level + 1) .. " (" .. cost .. "c)"
-        )
     end
 end
 
@@ -969,7 +936,6 @@ local function purchaseAbilityUpgrade(abilityType)
 
     markProgressChanged()
     saveProgress()
-    refreshUpgradeMenuTitles()
 
     if isPurchase then
         playSoundOneShot(buyAbilitySoundPlayer)
@@ -979,21 +945,6 @@ local function purchaseAbilityUpgrade(abilityType)
 
     return true, nil
 end
-
-local systemMenu = pd.getSystemMenu()
-systemMenu:addOptionsMenuItem(
-    "Upgrade",
-    { "Shield", "Shrink", "Slowdown", "Dash" },
-    "Shield",
-    function(selectedLabel)
-        selectedUpgradeAbility = upgradeAbilityTypesByLabel[selectedLabel]
-        refreshUpgradeMenuTitles()
-    end
-)
-upgradePurchaseMenuItem = systemMenu:addMenuItem("Buy upgrade", function()
-    purchaseAbilityUpgrade(selectedUpgradeAbility)
-end)
-refreshUpgradeMenuTitles()
 
 local function resetExplosion()
     explosionAnimation = nil
@@ -1201,6 +1152,8 @@ local function drawWakeLines()
             pdg.drawLine(line.x, line.y, line.x + line.dx * lineLength, line.y + line.dy * lineLength)
         end
     end
+
+    Steamboat.drawWakeLines()
 
     pdg.setLineWidth(previousLineWidth)
     pdg.setColor(previousColor)
@@ -1620,16 +1573,24 @@ local function handlePlayerCollisions(collisions, length)
     for i = 1, length do
         local other = collisions[i].other
 
-        if other ~= nil
-            and other.objectType == "rock"
-            and other.active
-            and playerSprite:alphaCollision(other)
-        then
-            if shieldHitsRemaining > 0 then
-                shieldHitsRemaining -= 1
-                destroyRock(other)
-            else
-                return true
+        if other ~= nil and other.active then
+            if other.objectType == "rock" and playerSprite:alphaCollision(other) then
+                if shieldHitsRemaining > 0 then
+                    shieldHitsRemaining -= 1
+                    destroyRock(other)
+                else
+                    return true
+                end
+            elseif other.objectType == "steamboat"
+                and playerSprite:alphaCollision(other)
+            then
+                if shieldHitsRemaining > 0 and Steamboat.explode() then
+                    shieldHitsRemaining -= 1
+                    playSoundOneShot(boatExplosionSoundPlayer)
+                    ScreenShake.start(TUNING.STEAMBOAT_EXPLOSION_SCREEN_SHAKE)
+                else
+                    return true
+                end
             end
         end
     end
@@ -1648,6 +1609,7 @@ local function hideGameplayWorld()
     resetCollectables()
     decorationManager:reset()
     clearRockExplosions()
+    Steamboat.reset()
 
     for i = 1, TUNING.MAX_ROCKS do
         rockSprites[i].active = false
@@ -1704,6 +1666,7 @@ local function rewindGameplayWorld(elapsedMilliseconds, displacement)
     end
 
     updateRockExplosions(elapsedMilliseconds, displacement)
+    remainingObjectCount += Steamboat.rewind(elapsedMilliseconds, displacement)
     explosionX += displacement
     return remainingObjectCount
 end
@@ -1827,6 +1790,8 @@ local function beginGameplay()
         resetRockPosition(rockSprites[i])
     end
 
+    Steamboat.beginRun(Difficulty.getSelectedMode().STEAMBOAT_SPAWN_CONFIG)
+
     lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
     startGameplayLoopSounds()
 end
@@ -1858,6 +1823,7 @@ local function smoothstep(progress)
     return clampedProgress * clampedProgress * (3 - 2 * clampedProgress)
 end
 
+Steamboat.initialize(TUNING, sfxChannel, destroyRock, explosionImagetable)
 enterMainMenu()
 
 function playdate.crankDocked()
@@ -1995,7 +1961,6 @@ function playdate.update()
             end
 
             local selectedAbility = UpgradeMenuUI.ABILITIES[upgradeMenuState.selectionIndex]
-            selectedUpgradeAbility = selectedAbility.type
 
             if pd.buttonJustPressed(pd.kButtonA) then
                 local _, purchaseMessage = purchaseAbilityUpgrade(selectedAbility.type)
@@ -2437,6 +2402,8 @@ function playdate.update()
             resetRockPosition(rock)
         end
     end
+
+    Steamboat.update(elapsedMilliseconds, worldDisplacement, rockSprites)
 
     updatePlayerScale(elapsedMilliseconds)
     updateDashCooldown(elapsedMilliseconds)
