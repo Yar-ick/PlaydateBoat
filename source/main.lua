@@ -15,6 +15,7 @@ import "DecorationManager"
 import "AbilityTopUI"
 import "UpgradeMenuUI"
 import "ScreenShake"
+import "WakeLayer"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -1057,30 +1058,31 @@ local playerParticleEmitterOffsets = {
     {x = 4, y = 30},    -- 48 frame
 }
 
-local wakeLinePoolSize = 28
 local wakeLinePool = {}
 local wakeLineCursor = 1
 local wakeLineSpawnCounter = 0
 
-for i = 1, wakeLinePoolSize do
+for i = 1, TUNING.WAKE_LINE_POOL_SIZE do
     wakeLinePool[i] = { active = false }
 end
 
 local function clearWakeLines()
-    for i = 1, wakeLinePoolSize do
+    for i = 1, TUNING.WAKE_LINE_POOL_SIZE do
         wakeLinePool[i].active = false
     end
+
+    WakeLayer.markDirty()
 end
 
-local function spawnWakeLine(engineX, engineY, wakeAngle, speedMultiplier)
+local function spawnWakeLine(engineX, engineY, wakeAngle, speedMultiplier, angleSpread)
     local line = wakeLinePool[wakeLineCursor]
 
     wakeLineCursor += 1
-    if wakeLineCursor > wakeLinePoolSize then
+    if wakeLineCursor > TUNING.WAKE_LINE_POOL_SIZE then
         wakeLineCursor = 1
     end
 
-    local angle = wakeAngle + math.random(-12, 12)
+    local angle = wakeAngle + math.random(-angleSpread, angleSpread)
     local perpendicularAngle = angle + 90
     local sideOffset = math.random(-3, 3)
     local speed = math.random(12, 20) / 10 * speedMultiplier
@@ -1103,7 +1105,7 @@ local function updateWakeLines(
     isDashing,
     worldDisplacement
 )
-    for i = 1, wakeLinePoolSize do
+    for i = 1, TUNING.WAKE_LINE_POOL_SIZE do
         local line = wakeLinePool[i]
 
         if line.active == true then
@@ -1119,21 +1121,53 @@ local function updateWakeLines(
         end
     end
 
+    WakeLayer.markDirty()
+
     local emitterOffset = playerParticleEmitterOffsets[playerSpriteIndexFromAngle]
     local engineX = playerX + emitterOffset.x * currentPlayerScale
     local engineY = playerY + emitterOffset.y * currentPlayerScale
     local wakeAngle = math.normalizeAngle(currentVelocityAngle + 180)
+    local isDefaultScale = currentPlayerScale >= TUNING.WAKE_DEFAULT_SCALE_THRESHOLD
+    local angleSpread = TUNING.WAKE_SHRUNK_ANGLE_SPREAD_DEGREES
+
+    if isDefaultScale then
+        angleSpread = TUNING.WAKE_DEFAULT_SCALE_ANGLE_SPREAD_DEGREES
+    end
+
+    local spawnCount
+    local spawnInterval
+    local speedMultiplier
 
     if playerSpeedMode == 2 or isDashing then
-        spawnWakeLine(engineX, engineY, wakeAngle, 1.6)
-        spawnWakeLine(engineX, engineY, wakeAngle, 1.6)
-    elseif playerSpeedMode == 1 then
-        wakeLineSpawnCounter += 1
+        spawnCount = TUNING.WAKE_SHRUNK_FAST_SPAWN_COUNT
+        spawnInterval = TUNING.WAKE_SHRUNK_FAST_SPAWN_INTERVAL_FRAMES
+        speedMultiplier = 1.6
 
-        if wakeLineSpawnCounter >= 2 then
-            spawnWakeLine(engineX, engineY, wakeAngle, 1)
-            wakeLineSpawnCounter = 0
+        if isDefaultScale then
+            spawnCount = TUNING.WAKE_DEFAULT_SCALE_FAST_SPAWN_COUNT
+            spawnInterval = TUNING.WAKE_DEFAULT_SCALE_FAST_SPAWN_INTERVAL_FRAMES
         end
+    elseif playerSpeedMode == 1 then
+        spawnCount = TUNING.WAKE_SHRUNK_NORMAL_SPAWN_COUNT
+        spawnInterval = TUNING.WAKE_SHRUNK_NORMAL_SPAWN_INTERVAL_FRAMES
+        speedMultiplier = 1
+
+        if isDefaultScale then
+            spawnCount = TUNING.WAKE_DEFAULT_SCALE_NORMAL_SPAWN_COUNT
+            spawnInterval = TUNING.WAKE_DEFAULT_SCALE_NORMAL_SPAWN_INTERVAL_FRAMES
+        end
+    else
+        return
+    end
+
+    wakeLineSpawnCounter += 1
+
+    if wakeLineSpawnCounter >= spawnInterval then
+        for _ = 1, spawnCount do
+            spawnWakeLine(engineX, engineY, wakeAngle, speedMultiplier, angleSpread)
+        end
+
+        wakeLineSpawnCounter = 0
     end
 end
 
@@ -1143,7 +1177,7 @@ local function drawWakeLines()
 
     pdg.setColor(pdg.kColorBlack)
 
-    for i = 1, wakeLinePoolSize do
+    for i = 1, TUNING.WAKE_LINE_POOL_SIZE do
         local line = wakeLinePool[i]
 
         if line.active == true then
@@ -1163,6 +1197,8 @@ local function drawWakeLines()
     pdg.setLineWidth(previousLineWidth)
     pdg.setColor(previousColor)
 end
+
+WakeLayer.initialize(drawWakeLines, TUNING.WAKE_Z_INDEX)
 
 local function drawDashChargeChevrons(currentVelocityAngle, drawWhiteBackground)
     local dashChargeProgress = 1
@@ -2128,7 +2164,6 @@ function playdate.update()
             initialWorldDisplacement
         )
         pdg.sprite.update()
-        drawWakeLines()
 
         if presentationElapsedMilliseconds >= TUNING.MENU_LAUNCH_DURATION_MS then
             beginWaitingForCrank()
@@ -2172,7 +2207,6 @@ function playdate.update()
             initialWorldDisplacement
         )
         pdg.sprite.update()
-        drawWakeLines()
         drawHud()
         pd.ui.crankIndicator:draw()
 
@@ -2218,7 +2252,6 @@ function playdate.update()
             initialWorldDisplacement
         )
         pdg.sprite.update()
-        drawWakeLines()
         drawHud()
 
         if presentationElapsedMilliseconds >= TUNING.START_ROTATION_DURATION_MS then
@@ -2429,7 +2462,6 @@ function playdate.update()
 
     ScreenShake.applyDrawOffset()
     pdg.sprite.update()
-    drawWakeLines()
 
     if didCrash then
         updateExplosion()
