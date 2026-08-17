@@ -218,13 +218,28 @@ function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tun
     drawFramedAbility(ability.image, 112, yOffset + 26, ability.imageYOffset)
     pdg.drawText(ability.title, 152, yOffset + 33)
     pdg.drawText(ability.description, 112, yOffset + 70)
-    pdg.drawText(ability.upgradeDescription, 112, yOffset + 89)
+
+    if level == tuning.LOCKED_ABILITY_LEVEL then
+        pdg.drawText("Buy to unlock this ability.", 112, yOffset + 89)
+    else
+        pdg.drawText(ability.upgradeDescription, 112, yOffset + 89)
+    end
 
     drawUpgradeTrack(level, tuning, yOffset)
 
     if level < tuning.MAX_ABILITY_UPGRADE_LEVEL then
-        local cost = tuning.ABILITY_UPGRADE_COSTS[ability.type][level + 1]
-        drawButtonPrompt(images.aButton, "Upgrade", 112, yOffset + 163)
+        local cost
+        local actionLabel
+
+        if level == tuning.LOCKED_ABILITY_LEVEL then
+            cost = tuning.ABILITY_PURCHASE_COSTS[ability.type]
+            actionLabel = "Buy"
+        else
+            cost = tuning.ABILITY_UPGRADE_COSTS[ability.type][level + 1]
+            actionLabel = "Upgrade"
+        end
+
+        drawButtonPrompt(images.aButton, actionLabel, 112, yOffset + 163)
         images.coin:getImage(UpgradeMenuUI.coinFrame):draw(225, yOffset + 165)
         pdg.drawText(tostring(cost), 248, yOffset + 167)
     else

@@ -65,6 +65,7 @@ local speedReductionCollectableImage = pdg.image.new("images/SpeedReductionNoFra
 local coinPickupSoundPlayer = pds.sampleplayer.new("sounds/CoinPickup")
 local dashSoundPlayer = pds.sampleplayer.new("sounds/Dash")
 local shrinkSoundPlayer = pds.sampleplayer.new("sounds/Shrink")
+local shrinkReversedSoundPlayer = pds.sampleplayer.new("sounds/ShrinkReversed")
 local shieldSoundPlayer = pds.sampleplayer.new("sounds/Shield")
 local speedReductionSoundPlayer = pds.sampleplayer.new("sounds/SpeedReduction")
 local boatExplosionSoundPlayer = pds.sampleplayer.new("sounds/BoatExplosion")
@@ -86,6 +87,7 @@ local rockExplosionSoundPlayerCursor = 1
 sfxChannel:addSource(coinPickupSoundPlayer)
 sfxChannel:addSource(dashSoundPlayer)
 sfxChannel:addSource(shrinkSoundPlayer)
+sfxChannel:addSource(shrinkReversedSoundPlayer)
 sfxChannel:addSource(shieldSoundPlayer)
 sfxChannel:addSource(speedReductionSoundPlayer)
 sfxChannel:addSource(boatExplosionSoundPlayer)
@@ -266,13 +268,42 @@ if type(savedUpgrades) ~= "table" then
     savedUpgrades = {}
 end
 
+local function loadAbilityUpgradeLevel(savedLevel)
+    local numericLevel = tonumber(savedLevel)
+
+    if numericLevel == nil then
+        return TUNING.LOCKED_ABILITY_LEVEL
+    end
+
+    return math.clamp(
+        math.floor(numericLevel),
+        TUNING.LOCKED_ABILITY_LEVEL,
+        TUNING.MAX_ABILITY_UPGRADE_LEVEL
+    )
+end
+
 local playerCoins = math.max(0, math.floor(tonumber(savedProgress.coins) or 0))
-local shieldUpgradeLevel = math.clamp(math.floor(tonumber(savedUpgrades.shield) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
-local shrinkUpgradeLevel = math.clamp(math.floor(tonumber(savedUpgrades.shrink) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
-local speedReductionUpgradeLevel =
-    math.clamp(math.floor(tonumber(savedUpgrades.speedReduction) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
-local dashUpgradeLevel =
-    math.clamp(math.floor(tonumber(savedUpgrades.dash) or 0), 0, TUNING.MAX_ABILITY_UPGRADE_LEVEL)
+local shieldUpgradeLevel = loadAbilityUpgradeLevel(savedUpgrades.shield)
+local shrinkUpgradeLevel = loadAbilityUpgradeLevel(savedUpgrades.shrink)
+local speedReductionUpgradeLevel = loadAbilityUpgradeLevel(savedUpgrades.speedReduction)
+local dashUpgradeLevel = loadAbilityUpgradeLevel(savedUpgrades.dash)
+
+local function isAbilityPurchased(abilityType)
+    if abilityType == "shield" then
+        return shieldUpgradeLevel > TUNING.LOCKED_ABILITY_LEVEL
+    elseif abilityType == "shrink" then
+        return shrinkUpgradeLevel > TUNING.LOCKED_ABILITY_LEVEL
+    elseif abilityType == "speedReduction" then
+        return speedReductionUpgradeLevel > TUNING.LOCKED_ABILITY_LEVEL
+    end
+
+    return dashUpgradeLevel > TUNING.LOCKED_ABILITY_LEVEL
+end
+
+local function getDashCooldownDuration()
+    local level = math.max(0, dashUpgradeLevel)
+    return TUNING.DASH_COOLDOWN_MS_BY_LEVEL[level + 1]
+end
 local AUDIO_MODE_OPTIONS <const> = { "SFX + Music", "SFX", "Music" }
 local selectedAudioMode = savedProgress.audioMode
 local UI_MODE_OPTIONS <const> = { "On Top", "Near Boat", "Top + Boat" }
@@ -372,7 +403,7 @@ local bButtonHoldModeActivated = false
 local dashVelocityX = 0
 local dashVelocityY = 0
 local dashCooldownRemainingMilliseconds = 0
-local dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
+local dashCooldownDurationMilliseconds = getDashCooldownDuration()
 local dashUiProgress = 1
 local dashUiIsDraining = false
 local speedometerNeedleAngle = TUNING.SPEEDOMETER_MIN_ANGLE
@@ -526,6 +557,10 @@ local collectablesByType = {}
 local collectableSpawnRemainingMilliseconds = {}
 local collectableTypes <const> = { "coin", "shield", "shrink", "speedReduction" }
 
+local function isCollectableAvailable(collectableType)
+    return collectableType == "coin" or isAbilityPurchased(collectableType)
+end
+
 local function showHudMessage(message)
     hudMessage = message
     hudMessageRemainingMilliseconds = 1800
@@ -539,6 +574,10 @@ local function onCoinCollected()
 end
 
 local function onShieldCollected()
+    if isAbilityPurchased("shield") == false then
+        return
+    end
+
     shieldHitsRemaining = math.min(
         TUNING.MAX_SHIELD_HITS,
         shieldHitsRemaining + TUNING.SHIELD_HITS_BY_LEVEL[shieldUpgradeLevel + 1]
@@ -547,6 +586,10 @@ local function onShieldCollected()
 end
 
 local function onShrinkCollected()
+    if isAbilityPurchased("shrink") == false then
+        return
+    end
+
     shrinkDurationMilliseconds = TUNING.SHRINK_DURATION_MS_BY_LEVEL[shrinkUpgradeLevel + 1]
     targetPlayerScale = TUNING.SHRUNK_PLAYER_SCALE
     shrinkRemainingMilliseconds = shrinkDurationMilliseconds
@@ -556,6 +599,10 @@ local function onShrinkCollected()
 end
 
 local function onSpeedReductionCollected()
+    if isAbilityPurchased("speedReduction") == false then
+        return
+    end
+
     local reduction = TUNING.SPEED_REDUCTION_BY_LEVEL[speedReductionUpgradeLevel + 1]
     worldVelocity = math.max(TUNING.MIN_WORLD_VELOCITY, worldVelocity - reduction)
     playSoundOneShot(speedReductionSoundPlayer)
@@ -619,7 +666,7 @@ local function updateCollectables(elapsedMilliseconds, worldDisplacement)
                     collectable:despawn()
                 end
             end
-        else
+        elseif isCollectableAvailable(collectableType) then
             local remaining =
                 collectableSpawnRemainingMilliseconds[collectableType] - elapsedMilliseconds
             collectableSpawnRemainingMilliseconds[collectableType] = remaining
@@ -675,6 +722,7 @@ local function updatePlayerScale(elapsedMilliseconds)
                 shrinkDurationMilliseconds = nil
                 shrinkUiProgress = 0
                 targetPlayerScale = 1
+                playSoundOneShot(shrinkReversedSoundPlayer)
             end
         end
     else
@@ -723,7 +771,7 @@ local function updateDashCooldown(elapsedMilliseconds)
 end
 
 local function startDash(crankPositionForVelocity)
-    if dashCooldownRemainingMilliseconds > 0 then
+    if isAbilityPurchased("dash") == false or dashCooldownRemainingMilliseconds > 0 then
         return false
     end
 
@@ -741,7 +789,7 @@ local function startDash(crankPositionForVelocity)
 
     dashVelocityX = directionX * TUNING.DASH_INITIAL_VELOCITY
     dashVelocityY = directionY * TUNING.DASH_INITIAL_VELOCITY
-    dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
+    dashCooldownDurationMilliseconds = getDashCooldownDuration()
     dashCooldownRemainingMilliseconds = dashCooldownDurationMilliseconds
     dashUiProgress = 1
     dashUiIsDraining = true
@@ -850,10 +898,15 @@ local function refreshUpgradeMenuTitles()
     local label = upgradeAbilityLabels[selectedUpgradeAbility]
 
     if level >= TUNING.MAX_ABILITY_UPGRADE_LEVEL then
-        upgradePurchaseMenuItem:setTitle("Buy " .. label .. ": MAX")
+        upgradePurchaseMenuItem:setTitle(label .. ": MAX")
+    elseif level == TUNING.LOCKED_ABILITY_LEVEL then
+        local cost = TUNING.ABILITY_PURCHASE_COSTS[selectedUpgradeAbility]
+        upgradePurchaseMenuItem:setTitle("Buy " .. label .. " (" .. cost .. "c)")
     else
         local cost = TUNING.ABILITY_UPGRADE_COSTS[selectedUpgradeAbility][level + 1]
-        upgradePurchaseMenuItem:setTitle("Buy " .. label .. " L" .. (level + 1) .. " (" .. cost .. "c)")
+        upgradePurchaseMenuItem:setTitle(
+            "Upgrade " .. label .. " L" .. (level + 1) .. " (" .. cost .. "c)"
+        )
     end
 end
 
@@ -866,7 +919,18 @@ local function purchaseAbilityUpgrade(abilityType)
         return false, message
     end
 
-    local cost = TUNING.ABILITY_UPGRADE_COSTS[abilityType][level + 1]
+    local isPurchase = level == TUNING.LOCKED_ABILITY_LEVEL
+    local cost
+    local nextLevel
+
+    if isPurchase then
+        cost = TUNING.ABILITY_PURCHASE_COSTS[abilityType]
+        nextLevel = 0
+    else
+        cost = TUNING.ABILITY_UPGRADE_COSTS[abilityType][level + 1]
+        nextLevel = level + 1
+    end
+
     if playerCoins < cost then
         local message = "Need " .. cost .. " coins"
         showHudMessage(message)
@@ -874,16 +938,23 @@ local function purchaseAbilityUpgrade(abilityType)
     end
 
     playerCoins -= cost
-    setAbilityUpgradeLevel(abilityType, level + 1)
+    setAbilityUpgradeLevel(abilityType, nextLevel)
 
     if abilityType == "dash" and dashCooldownRemainingMilliseconds <= 0 then
-        dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
+        dashCooldownDurationMilliseconds = getDashCooldownDuration()
     end
 
     markProgressChanged()
     saveProgress()
     refreshUpgradeMenuTitles()
-    local message = "Upgraded to level " .. (level + 1)
+    local message
+
+    if isPurchase then
+        message = upgradeAbilityLabels[abilityType] .. " purchased"
+    else
+        message = "Upgraded to level " .. nextLevel
+    end
+
     showHudMessage(message)
     return true, message
 end
@@ -1268,19 +1339,30 @@ local function drawDiegeticAbilities(currentVelocityAngle)
     local previousLineWidth = pdg.getLineWidth()
     local previousColor = pdg.getColor()
 
-    -- Solid white backing plates prevent the water texture from crossing Dash arrows.
     pdg.setColor(pdg.kColorWhite)
-    drawDashChargeChevrons(currentVelocityAngle, true)
 
-    -- The wider white line keeps the curved Shrink bar readable over the world.
-    pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_BACKGROUND_LINE_WIDTH)
-    drawShrinkProgressArc(currentVelocityAngle)
+    if isAbilityPurchased("dash") then
+        -- Solid white backing plates prevent the water texture from crossing Dash arrows.
+        drawDashChargeChevrons(currentVelocityAngle, true)
+    end
+
+    if isAbilityPurchased("shrink") then
+        -- The wider white line keeps the curved Shrink bar readable over the world.
+        pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_BACKGROUND_LINE_WIDTH)
+        drawShrinkProgressArc(currentVelocityAngle)
+    end
 
     pdg.setColor(pdg.kColorBlack)
-    pdg.setLineWidth(TUNING.DIEGETIC_DASH_LINE_WIDTH)
-    drawDashChargeChevrons(currentVelocityAngle, false)
-    pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_LINE_WIDTH)
-    drawShrinkProgressArc(currentVelocityAngle)
+
+    if isAbilityPurchased("dash") then
+        pdg.setLineWidth(TUNING.DIEGETIC_DASH_LINE_WIDTH)
+        drawDashChargeChevrons(currentVelocityAngle, false)
+    end
+
+    if isAbilityPurchased("shrink") then
+        pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_LINE_WIDTH)
+        drawShrinkProgressArc(currentVelocityAngle)
+    end
 
     -- Shield storage uses the recognizable collectable art at a smaller scale.
     drawShieldStorage(currentVelocityAngle)
@@ -1399,6 +1481,8 @@ local function drawHud()
             dashCooldownRemainingMilliseconds <= 0,
             shrinkUiProgress,
             shieldHitsRemaining,
+            isAbilityPurchased("dash"),
+            isAbilityPurchased("shrink"),
             TUNING,
             leftHudOffsetX
         )
@@ -1595,7 +1679,7 @@ local function prepareNewRun()
     dashVelocityX = 0
     dashVelocityY = 0
     dashCooldownRemainingMilliseconds = 0
-    dashCooldownDurationMilliseconds = TUNING.DASH_COOLDOWN_MS_BY_LEVEL[dashUpgradeLevel + 1]
+    dashCooldownDurationMilliseconds = getDashCooldownDuration()
     dashUiProgress = 1
     dashUiIsDraining = false
     speedometerNeedleAngle = TUNING.SPEEDOMETER_MIN_ANGLE
