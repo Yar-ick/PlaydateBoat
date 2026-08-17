@@ -1,6 +1,6 @@
-name=Boat
+name=Wakebreaker
 author=Nikita Yaroslavtsev
 description=
-bundleID=com.yarick.boat
+bundleID=com.yarick.wakebreaker
 version=1.0.0
 buildNumber=1
