@@ -62,6 +62,18 @@ local starImage = pdg.image.new("images/Star")
 local shieldCollectableImage = pdg.image.new("images/ShieldNoFrame")
 local shrinkCollectableImage = pdg.image.new("images/SrinkNoFrame")
 local speedReductionCollectableImage = pdg.image.new("images/SpeedReductionNoFrame")
+
+local selectAbilitySoundPlayer = pds.sampleplayer.new("sounds/SelectAbility")
+local openUpgradeMenuSoundPlayer = pds.sampleplayer.new("sounds/OpenUpgradeMenu")
+local closeUpgradeMenuSoundPlayer = pds.sampleplayer.new("sounds/CloseUpgradeMenu")
+local buyAbilitySoundPlayer = pds.sampleplayer.new("sounds/BuyAbility")
+local noUpgradeSoundPlayer = pds.sampleplayer.new("sounds/NoUpgrade")
+local upgradeAbilitySoundPlayers = {
+    pds.sampleplayer.new("sounds/UpgradeAbilityFirstLevel"),
+    pds.sampleplayer.new("sounds/UpgradeAbilitySecondLevel"),
+    pds.sampleplayer.new("sounds/UpgradeAbilityThirdLevel")
+}
+
 local coinPickupSoundPlayer = pds.sampleplayer.new("sounds/CoinPickup")
 local dashSoundPlayer = pds.sampleplayer.new("sounds/Dash")
 local shrinkSoundPlayer = pds.sampleplayer.new("sounds/Shrink")
@@ -83,6 +95,16 @@ local sfxChannel = pds.channel.new()
 local musicChannel = pds.channel.new()
 local rockExplosionSoundPlayers = {}
 local rockExplosionSoundPlayerCursor = 1
+
+sfxChannel:addSource(selectAbilitySoundPlayer)
+sfxChannel:addSource(openUpgradeMenuSoundPlayer)
+sfxChannel:addSource(closeUpgradeMenuSoundPlayer)
+sfxChannel:addSource(buyAbilitySoundPlayer)
+sfxChannel:addSource(noUpgradeSoundPlayer)
+
+for i = 1, #upgradeAbilitySoundPlayers do
+    sfxChannel:addSource(upgradeAbilitySoundPlayers[i])
+end
 
 sfxChannel:addSource(coinPickupSoundPlayer)
 sfxChannel:addSource(dashSoundPlayer)
@@ -551,19 +573,12 @@ playerSprite:setCollideRect(playerCollisionX, playerCollisionY, playerCollisionW
 playerSprite:moveTo(playerStartX, playerStartY)
 playerSprite:add()
 
-local hudMessage = nil
-local hudMessageRemainingMilliseconds = 0
 local collectablesByType = {}
 local collectableSpawnRemainingMilliseconds = {}
 local collectableTypes <const> = { "coin", "shield", "shrink", "speedReduction" }
 
 local function isCollectableAvailable(collectableType)
     return collectableType == "coin" or isAbilityPurchased(collectableType)
-end
-
-local function showHudMessage(message)
-    hudMessage = message
-    hudMessageRemainingMilliseconds = 1800
 end
 
 local function onCoinCollected()
@@ -914,9 +929,8 @@ local function purchaseAbilityUpgrade(abilityType)
     local level = getAbilityUpgradeLevel(abilityType)
 
     if level >= TUNING.MAX_ABILITY_UPGRADE_LEVEL then
-        local message = "Ability is already max level"
-        showHudMessage(message)
-        return false, message
+        playSoundOneShot(noUpgradeSoundPlayer)
+        return false, nil
     end
 
     local isPurchase = level == TUNING.LOCKED_ABILITY_LEVEL
@@ -932,9 +946,8 @@ local function purchaseAbilityUpgrade(abilityType)
     end
 
     if playerCoins < cost then
-        local message = "Need " .. cost .. " coins"
-        showHudMessage(message)
-        return false, message
+        playSoundOneShot(noUpgradeSoundPlayer)
+        return false, nil
     end
 
     playerCoins -= cost
@@ -947,16 +960,14 @@ local function purchaseAbilityUpgrade(abilityType)
     markProgressChanged()
     saveProgress()
     refreshUpgradeMenuTitles()
-    local message
 
     if isPurchase then
-        message = upgradeAbilityLabels[abilityType] .. " purchased"
+        playSoundOneShot(buyAbilitySoundPlayer)
     else
-        message = "Upgraded to level " .. nextLevel
+        playSoundOneShot(upgradeAbilitySoundPlayers[nextLevel])
     end
 
-    showHudMessage(message)
-    return true, message
+    return true, nil
 end
 
 local systemMenu = pd.getSystemMenu()
@@ -1523,9 +1534,6 @@ local function drawHud()
     coinImage:draw(coinX, 25)
     pdg.setColor(previousColor)
 
-    if hudMessage ~= nil then
-        pdg.drawText(hudMessage, 10, 216)
-    end
 end
 
 local function destroyRock(rock)
@@ -1690,8 +1698,6 @@ local function prepareNewRun()
     waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
     gameMusicRate = TUNING.MUSIC_NORMAL_RATE
     musicPlayers.gameplay:stop()
-    hudMessage = nil
-    hudMessageRemainingMilliseconds = 0
     crashReturnDelayElapsedMilliseconds = 0
 
     scoreTimer:reset()
@@ -1870,14 +1876,6 @@ function playdate.update()
 
     pd.timer.updateTimers()
 
-    if hudMessageRemainingMilliseconds > 0 then
-        hudMessageRemainingMilliseconds -= elapsedMilliseconds
-
-        if hudMessageRemainingMilliseconds <= 0 then
-            hudMessage = nil
-        end
-    end
-
     if BoatGameState == GameState.WAITING_FOR_CRANK
         or BoatGameState == GameState.ALIGNING_TO_CRANK
         or BoatGameState == GameState.ALIVE
@@ -1931,14 +1929,18 @@ function playdate.update()
         if upgradeMenuState.progress >= 1 and upgradeMenuState.closing == false then
             if pd.buttonJustPressed(pd.kButtonUp) or pd.buttonJustPressed(pd.kButtonLeft) then
                 upgradeMenuState.selectionIndex -= 1
+
                 if upgradeMenuState.selectionIndex < 1 then
                     upgradeMenuState.selectionIndex = #UpgradeMenuUI.ABILITIES
                 end
+
                 upgradeMenuState.message = nil
+                playSoundOneShot(selectAbilitySoundPlayer)
             elseif pd.buttonJustPressed(pd.kButtonDown) or pd.buttonJustPressed(pd.kButtonRight) then
                 upgradeMenuState.selectionIndex = upgradeMenuState.selectionIndex
                     % #UpgradeMenuUI.ABILITIES + 1
                 upgradeMenuState.message = nil
+                playSoundOneShot(selectAbilitySoundPlayer)
             end
 
             local selectedAbility = UpgradeMenuUI.ABILITIES[upgradeMenuState.selectionIndex]
@@ -1952,6 +1954,7 @@ function playdate.update()
             elseif pd.buttonJustPressed(pd.kButtonB) then
                 upgradeMenuState.closing = true
                 upgradeMenuState.message = nil
+                playSoundOneShot(closeUpgradeMenuSoundPlayer)
             end
         end
 
@@ -2008,6 +2011,7 @@ function playdate.update()
             upgradeMenuState.progress = 0
             upgradeMenuState.closing = false
             upgradeMenuState.message = nil
+            playSoundOneShot(openUpgradeMenuSoundPlayer)
         end
 
         return
