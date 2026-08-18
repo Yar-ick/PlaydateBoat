@@ -72,6 +72,7 @@ local speedReductionCollectableImage = pdg.image.new("images/SpeedReductionNoFra
 local selectAbilitySoundPlayer = pds.sampleplayer.new("sounds/SelectAbility")
 local openUpgradeMenuSoundPlayer = pds.sampleplayer.new("sounds/OpenUpgradeMenu")
 local closeUpgradeMenuSoundPlayer = pds.sampleplayer.new("sounds/CloseUpgradeMenu")
+local startJourneySoundPlayer = pds.sampleplayer.new("sounds/StartJourney")
 local buyAbilitySoundPlayer = pds.sampleplayer.new("sounds/AbilityPurchaseSuccess")
 local noUpgradeSoundPlayer = pds.sampleplayer.new("sounds/NoUpgrade")
 local upgradeAbilitySoundPlayers = {
@@ -105,6 +106,7 @@ local rockExplosionSoundPlayerCursor = 1
 sfxChannel:addSource(selectAbilitySoundPlayer)
 sfxChannel:addSource(openUpgradeMenuSoundPlayer)
 sfxChannel:addSource(closeUpgradeMenuSoundPlayer)
+sfxChannel:addSource(startJourneySoundPlayer)
 sfxChannel:addSource(buyAbilitySoundPlayer)
 sfxChannel:addSource(noUpgradeSoundPlayer)
 
@@ -1754,6 +1756,7 @@ local function startLaunchTransition()
     launchVisualAngle = 180
     resetCollectables()
     clearWakeLines()
+    playSoundOneShot(startJourneySoundPlayer)
     startBoatEngineSound()
     startWaterFlowSound()
     startMenuMusic()
