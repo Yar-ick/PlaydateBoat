@@ -21,6 +21,9 @@ $RECYCLE.BIN/
 # Playdate Builds
 builds/
 
+# Temp files
+tmp/
+
 # Built Visual Studio Code Extensions
 *.vsix
 
