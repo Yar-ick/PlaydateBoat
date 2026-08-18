@@ -448,6 +448,9 @@ local crashReturnDelayElapsedMilliseconds = 0
 local waitingCrankMovement = 0
 local startRotationAngle = 180
 local launchVisualAngle = 180
+local menuBoatFloatElapsedMilliseconds = 0
+local launchStartX = TUNING.MAIN_MENU_BOAT_X
+local launchStartY = TUNING.MAIN_MENU_BOAT_Y
 
 local scoreTimer = pd.timer.new(1000, function()
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
@@ -1731,10 +1734,29 @@ local function prepareNewRun()
     resetExplosion()
 end
 
+local function updateMainMenuBoatFloat(elapsedMilliseconds)
+    menuBoatFloatElapsedMilliseconds += elapsedMilliseconds
+
+    local verticalPhase = menuBoatFloatElapsedMilliseconds
+        / TUNING.MAIN_MENU_BOAT_FLOAT_VERTICAL_PERIOD_MS * math.pi * 2
+    local secondaryPhase = menuBoatFloatElapsedMilliseconds
+        / TUNING.MAIN_MENU_BOAT_FLOAT_SECONDARY_PERIOD_MS * math.pi * 2
+    local horizontalPhase = menuBoatFloatElapsedMilliseconds
+        / TUNING.MAIN_MENU_BOAT_FLOAT_HORIZONTAL_PERIOD_MS * math.pi * 2
+
+    playerX = TUNING.MAIN_MENU_BOAT_X
+        + math.sin(horizontalPhase) * TUNING.MAIN_MENU_BOAT_FLOAT_HORIZONTAL_AMPLITUDE
+    playerY = TUNING.MAIN_MENU_BOAT_Y
+        + math.sin(verticalPhase) * TUNING.MAIN_MENU_BOAT_FLOAT_VERTICAL_AMPLITUDE
+        + math.sin(secondaryPhase) * TUNING.MAIN_MENU_BOAT_FLOAT_SECONDARY_AMPLITUDE
+    playerSprite:moveTo(playerX, playerY)
+end
+
 local function enterMainMenu()
     prepareNewRun()
     BoatGameState = GameState.MAIN_MENU
     presentationElapsedMilliseconds = 0
+    menuBoatFloatElapsedMilliseconds = 0
     waitingCrankMovement = 0
     MainMenuHUDAnimation.show()
     lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
@@ -1753,6 +1775,8 @@ end
 local function startLaunchTransition()
     BoatGameState = GameState.LAUNCHING
     presentationElapsedMilliseconds = 0
+    launchStartX = playerX
+    launchStartY = playerY
     launchVisualAngle = 180
     resetCollectables()
     clearWakeLines()
@@ -2017,6 +2041,7 @@ function playdate.update()
             waterScrollX + initialWorldDisplacement,
             TUNING.MAIN_MENU_WATER_CENTER_Y
         )
+        updateMainMenuBoatFloat(elapsedMilliseconds)
         local completedMenuAction = MainMenuHUDAnimation.update(elapsedMilliseconds, TUNING)
         local leftHudOffsetX, rightHudOffsetX = MainMenuHUDAnimation.getOffsets(TUNING)
 
@@ -2109,21 +2134,21 @@ function playdate.update()
         if transitionProgress < curve.SPLIT then
             curveProgress = transitionProgress / curve.SPLIT
             inverseCurveProgress = 1 - curveProgress
-            playerX = inverseCurveProgress ^ 3 * TUNING.MAIN_MENU_BOAT_X
+            playerX = inverseCurveProgress ^ 3 * launchStartX
                 + 3 * inverseCurveProgress ^ 2 * curveProgress * curve.FIRST_CONTROL_X
                 + 3 * inverseCurveProgress * curveProgress ^ 2 * curve.TURN_CONTROL_X
                 + curveProgress ^ 3 * curve.TURN_X
-            playerY = inverseCurveProgress ^ 3 * TUNING.MAIN_MENU_BOAT_Y
+            playerY = inverseCurveProgress ^ 3 * launchStartY
                 + 3 * inverseCurveProgress ^ 2 * curveProgress * curve.FIRST_CONTROL_Y
                 + 3 * inverseCurveProgress * curveProgress ^ 2 * curve.TURN_CONTROL_Y
                 + curveProgress ^ 3 * curve.TURN_Y
             launchVelocityX = 3 * inverseCurveProgress ^ 2
-                    * (curve.FIRST_CONTROL_X - TUNING.MAIN_MENU_BOAT_X)
+                    * (curve.FIRST_CONTROL_X - launchStartX)
                 + 6 * inverseCurveProgress * curveProgress
                     * (curve.TURN_CONTROL_X - curve.FIRST_CONTROL_X)
                 + 3 * curveProgress ^ 2 * (curve.TURN_X - curve.TURN_CONTROL_X)
             launchVelocityY = 3 * inverseCurveProgress ^ 2
-                    * (curve.FIRST_CONTROL_Y - TUNING.MAIN_MENU_BOAT_Y)
+                    * (curve.FIRST_CONTROL_Y - launchStartY)
                 + 6 * inverseCurveProgress * curveProgress
                     * (curve.TURN_CONTROL_Y - curve.FIRST_CONTROL_Y)
                 + 3 * curveProgress ^ 2 * (curve.TURN_Y - curve.TURN_CONTROL_Y)
