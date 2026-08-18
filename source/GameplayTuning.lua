@@ -322,7 +322,7 @@ GameplayTuning = {
 
     -- Level -1 is locked, level 0 is purchased, and levels 1-3 are upgrades.
     LOCKED_ABILITY_LEVEL = -1,
-    SHIELD_HITS_BY_LEVEL = { 1, 2, 3, 5 },
+    SHIELD_HITS_BY_LEVEL = { 1, 2, 3, 4 },
     MAX_SHIELD_HITS = 10,
     SHRINK_DURATION_MS_BY_LEVEL = { 5000, 7000, 10000, 15000 },
     SHRINK_UI_FILL_DURATION_MS = 250,
@@ -332,15 +332,15 @@ GameplayTuning = {
     ABILITY_PURCHASE_COSTS = {
         shield = 5,
         shrink = 5,
-        speedReduction = 5,
+        speedReduction = 10,
         dash = 5
     },
 
     ABILITY_UPGRADE_COSTS = {
-        shield = { 5, 15, 30 },
-        shrink = { 5, 15, 30 },
-        speedReduction = { 5, 15, 30 },
-        dash = { 5, 15, 30 }
+        shield = { 15, 30, 50 },
+        shrink = { 15, 30, 50 },
+        speedReduction = { 15, 30, 50 },
+        dash = { 15, 30, 50 }
     },
 
     UPGRADE_EFFECT_CORE_DURATION_MS = 180,
