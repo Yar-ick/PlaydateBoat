@@ -72,12 +72,12 @@ local speedReductionCollectableImage = pdg.image.new("images/SpeedReductionNoFra
 local selectAbilitySoundPlayer = pds.sampleplayer.new("sounds/SelectAbility")
 local openUpgradeMenuSoundPlayer = pds.sampleplayer.new("sounds/OpenUpgradeMenu")
 local closeUpgradeMenuSoundPlayer = pds.sampleplayer.new("sounds/CloseUpgradeMenu")
-local buyAbilitySoundPlayer = pds.sampleplayer.new("sounds/BuyAbility")
+local buyAbilitySoundPlayer = pds.sampleplayer.new("sounds/AbilityPurchaseSuccess")
 local noUpgradeSoundPlayer = pds.sampleplayer.new("sounds/NoUpgrade")
 local upgradeAbilitySoundPlayers = {
-    pds.sampleplayer.new("sounds/UpgradeAbilityFirstLevel"),
-    pds.sampleplayer.new("sounds/UpgradeAbilitySecondLevel"),
-    pds.sampleplayer.new("sounds/UpgradeAbilityThirdLevel")
+    pds.sampleplayer.new("sounds/AbilityUpgradeSuccess1"),
+    pds.sampleplayer.new("sounds/AbilityUpgradeSuccess2"),
+    pds.sampleplayer.new("sounds/AbilityUpgradeSuccess3")
 }
 
 local coinPickupSoundPlayer = pds.sampleplayer.new("sounds/CoinPickup")
@@ -929,6 +929,7 @@ local function purchaseAbilityUpgrade(abilityType)
 
     playerCoins -= cost
     setAbilityUpgradeLevel(abilityType, nextLevel)
+    UpgradeMenuUI.playUpgradeEffect(nextLevel)
 
     if abilityType == "dash" and dashCooldownRemainingMilliseconds <= 0 then
         dashCooldownDurationMilliseconds = getDashCooldownDuration()

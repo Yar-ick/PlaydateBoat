@@ -47,8 +47,24 @@ UpgradeMenuUI = {
     coinFrame = 1,
     coinElapsedMilliseconds = 0,
     upgradeBlinkElapsedMilliseconds = 0,
-    upgradeBlinkOn = true
+    upgradeBlinkOn = true,
+    upgradeEffect = {
+        active = false,
+        elapsedMilliseconds = 0,
+        nodeIndex = 1
+    }
 }
+
+local upgradeNodeCenters <const> = { 120, 202, 284, 366 }
+
+local function clamp01(value)
+    return math.max(0, math.min(1, value))
+end
+
+local function smoothstep(value)
+    value = clamp01(value)
+    return value * value * (3 - 2 * value)
+end
 
 local function drawFramedAbility(abilityImage, frameX, frameY, imageYOffset)
     local frameWidth, frameHeight = images.abilityFrame:getSize()
@@ -144,23 +160,37 @@ local function drawButtonPrompt(buttonImage, label, x, y)
 end
 
 local function drawUpgradeTrack(level, tuning, yOffset)
-    local nodeCenters = { 120, 202, 284, 366 }
     local centerY = yOffset + 133
+    local effect = UpgradeMenuUI.upgradeEffect
 
     pdg.setColor(pdg.kColorBlack)
 
     -- Draw the connected double rail first so the node faces mask its ends.
-    for nodeIndex = 1, #nodeCenters - 1 do
-        pdg.drawLine(nodeCenters[nodeIndex], centerY - 2, nodeCenters[nodeIndex + 1], centerY - 2)
-        pdg.drawLine(nodeCenters[nodeIndex], centerY + 2, nodeCenters[nodeIndex + 1], centerY + 2)
+    for nodeIndex = 1, #upgradeNodeCenters - 1 do
+        pdg.drawLine(
+            upgradeNodeCenters[nodeIndex],
+            centerY - 2,
+            upgradeNodeCenters[nodeIndex + 1],
+            centerY - 2
+        )
+        pdg.drawLine(
+            upgradeNodeCenters[nodeIndex],
+            centerY + 2,
+            upgradeNodeCenters[nodeIndex + 1],
+            centerY + 2
+        )
     end
 
-    for nodeIndex = 1, #nodeCenters do
+    for nodeIndex = 1, #upgradeNodeCenters do
         local isCompleted = nodeIndex <= level + 1
         local isNextLevel = level < tuning.MAX_ABILITY_UPGRADE_LEVEL
             and nodeIndex == level + 2
         local isFilled = isCompleted or (isNextLevel and UpgradeMenuUI.upgradeBlinkOn)
-        local centerX = nodeCenters[nodeIndex]
+        local centerX = upgradeNodeCenters[nodeIndex]
+
+        if effect.active and nodeIndex == effect.nodeIndex then
+            isFilled = false
+        end
 
         pdg.setColor(pdg.kColorBlack)
         pdg.fillCircleAtPoint(centerX, centerY, 13)
@@ -173,6 +203,73 @@ local function drawUpgradeTrack(level, tuning, yOffset)
             pdg.fillCircleAtPoint(centerX, centerY, 7)
         end
     end
+end
+
+local function drawUpgradeEffect(yOffset, tuning)
+    local effect = UpgradeMenuUI.upgradeEffect
+
+    if effect.active == false then
+        return
+    end
+
+    local centerX = upgradeNodeCenters[effect.nodeIndex]
+    local centerY = yOffset + 133
+    local coreProgress = smoothstep(
+        effect.elapsedMilliseconds / tuning.UPGRADE_EFFECT_CORE_DURATION_MS
+    )
+    local coreRadius = math.floor(7 * coreProgress + 0.5)
+
+    pdg.setColor(pdg.kColorBlack)
+
+    if coreRadius > 0 then
+        pdg.fillCircleAtPoint(centerX, centerY, coreRadius)
+    end
+
+    local burstElapsedMilliseconds = effect.elapsedMilliseconds
+        - tuning.UPGRADE_EFFECT_CORE_DURATION_MS
+
+    if burstElapsedMilliseconds < 0 then
+        return
+    end
+
+    local particleCount = tuning.UPGRADE_EFFECT_BASE_PARTICLE_COUNT
+        + (effect.nodeIndex - 1) * tuning.UPGRADE_EFFECT_PARTICLES_PER_LEVEL
+    local particleDistance = tuning.UPGRADE_EFFECT_BASE_PARTICLE_DISTANCE
+        + (effect.nodeIndex - 1) * tuning.UPGRADE_EFFECT_PARTICLE_DISTANCE_PER_LEVEL
+    local particleMaxRadius = tuning.UPGRADE_EFFECT_BASE_PARTICLE_MAX_RADIUS
+        + (effect.nodeIndex - 1) * tuning.UPGRADE_EFFECT_PARTICLE_RADIUS_PER_LEVEL
+
+    for particleIndex = 1, particleCount do
+        local particleElapsedMilliseconds = burstElapsedMilliseconds
+            - (particleIndex - 1) * tuning.UPGRADE_EFFECT_PARTICLE_STAGGER_MS
+        local progress = clamp01(
+            particleElapsedMilliseconds / tuning.UPGRADE_EFFECT_BURST_DURATION_MS
+        )
+
+        if progress > 0 and progress < 1 then
+            local angle = (particleIndex - 1) * math.pi * 2 / particleCount
+                + (particleIndex % 2) * 0.12
+            local distance = particleDistance * smoothstep(progress)
+            local radiusScale = math.sin(progress * math.pi)
+            local radius = math.max(
+                1,
+                math.floor(particleMaxRadius * radiusScale + 0.5)
+            )
+            local x = math.floor(centerX + math.cos(angle) * distance + 0.5)
+            local y = math.floor(centerY + math.sin(angle) * distance + 0.5)
+
+            pdg.fillCircleAtPoint(x, y, radius)
+        end
+    end
+end
+
+function UpgradeMenuUI.playUpgradeEffect(level)
+    UpgradeMenuUI.upgradeEffect.active = true
+    UpgradeMenuUI.upgradeEffect.elapsedMilliseconds = 0
+    UpgradeMenuUI.upgradeEffect.nodeIndex = math.max(
+        1,
+        math.min(#upgradeNodeCenters, level + 1)
+    )
 end
 
 function UpgradeMenuUI.update(elapsedMilliseconds)
@@ -188,6 +285,23 @@ function UpgradeMenuUI.update(elapsedMilliseconds)
         UpgradeMenuUI.upgradeBlinkElapsedMilliseconds %=
             GameplayTuning.UPGRADE_LEVEL_BLINK_INTERVAL_MS
         UpgradeMenuUI.upgradeBlinkOn = not UpgradeMenuUI.upgradeBlinkOn
+    end
+
+    local effect = UpgradeMenuUI.upgradeEffect
+
+    if effect.active then
+        effect.elapsedMilliseconds += elapsedMilliseconds
+
+        local particleCount = GameplayTuning.UPGRADE_EFFECT_BASE_PARTICLE_COUNT
+            + (effect.nodeIndex - 1) * GameplayTuning.UPGRADE_EFFECT_PARTICLES_PER_LEVEL
+        local totalDurationMilliseconds = GameplayTuning.UPGRADE_EFFECT_CORE_DURATION_MS
+            + GameplayTuning.UPGRADE_EFFECT_BURST_DURATION_MS
+            + (particleCount - 1)
+                * GameplayTuning.UPGRADE_EFFECT_PARTICLE_STAGGER_MS
+
+        if effect.elapsedMilliseconds >= totalDurationMilliseconds then
+            effect.active = false
+        end
     end
 end
 
@@ -226,6 +340,7 @@ function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tun
     end
 
     drawUpgradeTrack(level, tuning, yOffset)
+    drawUpgradeEffect(yOffset, tuning)
 
     if level < tuning.MAX_ABILITY_UPGRADE_LEVEL then
         local cost
