@@ -160,7 +160,7 @@ local function stopBoatEngineSound()
 end
 
 local function updateBoatEngineSound(isFast, isShrunk, currentWorldVelocity)
-    local velocityRange = TUNING.MAX_WORLD_VELOCITY - TUNING.INITIAL_WORLD_VELOCITY
+    local velocityRange = Difficulty.getMaxWorldVelocity() - TUNING.INITIAL_WORLD_VELOCITY
     local velocityProgress = 0
     if velocityRange > 0 then
         velocityProgress = math.clamp(
@@ -207,7 +207,7 @@ end
 local function updateWaterFlowSound(currentWorldVelocity)
     local velocityProgress = math.clamp(
         (currentWorldVelocity - TUNING.MIN_WORLD_VELOCITY)
-            / (TUNING.MAX_WORLD_VELOCITY - TUNING.MIN_WORLD_VELOCITY),
+            / (Difficulty.getMaxWorldVelocity() - TUNING.MIN_WORLD_VELOCITY),
         0,
         1
     )
@@ -256,7 +256,7 @@ end
 local function updateGameMusic(currentWorldVelocity)
     local velocityProgress = math.clamp(
         (currentWorldVelocity - TUNING.INITIAL_WORLD_VELOCITY)
-            / (TUNING.MAX_WORLD_VELOCITY - TUNING.INITIAL_WORLD_VELOCITY),
+            / (Difficulty.getMaxWorldVelocity() - TUNING.INITIAL_WORLD_VELOCITY),
         0,
         1
     )
@@ -561,8 +561,8 @@ end
 local velocityIncreaseTimer = pd.timer.new(TUNING.VELOCITY_INCREASE_INTERVAL_MS, function()
     if BoatGameState == GameState.ALIVE then
         worldVelocity = math.min(
-            TUNING.MAX_WORLD_VELOCITY,
-            worldVelocity * TUNING.WORLD_VELOCITY_GROWTH_MULTIPLIER
+            Difficulty.getMaxWorldVelocity(),
+            worldVelocity * Difficulty.getWorldVelocityGrowthMultiplier()
         )
         playerScoreStep += 10
     end
@@ -1448,7 +1448,7 @@ end
 local function updateSpeedometerNeedle(dashSpeed)
     local worldSpeedProgress = math.clamp(
         (interpolatedWorldVelocity - TUNING.MIN_WORLD_VELOCITY)
-            / (TUNING.MAX_WORLD_VELOCITY - TUNING.MIN_WORLD_VELOCITY),
+            / (Difficulty.getMaxWorldVelocity() - TUNING.MIN_WORLD_VELOCITY),
         0,
         1
     )

@@ -104,6 +104,14 @@ function Difficulty.getCoinReward()
     return Difficulty.getSelectedMode().COIN_REWARD
 end
 
+function Difficulty.getMaxWorldVelocity()
+    return Difficulty.getSelectedMode().MAX_WORLD_VELOCITY
+end
+
+function Difficulty.getWorldVelocityGrowthMultiplier()
+    return Difficulty.getSelectedMode().WORLD_VELOCITY_GROWTH_MULTIPLIER
+end
+
 function Difficulty.getRandomCollectableInterval(baseConfig, collectableType)
     local multiplier = 1
 

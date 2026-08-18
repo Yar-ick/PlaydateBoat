@@ -30,6 +30,8 @@ GameplayTuning = {
             COIN_REWARD = 1,
             ABILITY_SPAWN_CHANCE_MULTIPLIER = 1,
             ABILITY_SPAWN_INTERVAL_MULTIPLIER = 1,
+            MAX_WORLD_VELOCITY = 7,
+            WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.15,
             STEAMBOAT_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 65,
                 MINIMUM_INTERVAL_MS = 45000,
@@ -47,6 +49,8 @@ GameplayTuning = {
             COIN_REWARD = 2,
             ABILITY_SPAWN_CHANCE_MULTIPLIER = 0.65,
             ABILITY_SPAWN_INTERVAL_MULTIPLIER = 1.25,
+            MAX_WORLD_VELOCITY = 8,
+            WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.18,
             STEAMBOAT_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 85,
                 MINIMUM_INTERVAL_MS = 20000,
@@ -64,6 +68,8 @@ GameplayTuning = {
             COIN_REWARD = 3,
             ABILITY_SPAWN_CHANCE_MULTIPLIER = 0.25,
             ABILITY_SPAWN_INTERVAL_MULTIPLIER = 2,
+            MAX_WORLD_VELOCITY = 9,
+            WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.32,
             STEAMBOAT_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 100,
                 MINIMUM_INTERVAL_MS = 17500,
@@ -126,8 +132,6 @@ GameplayTuning = {
     },
 
     INITIAL_WORLD_VELOCITY = 1,
-    MAX_WORLD_VELOCITY = 8,
-    WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.18,
     VELOCITY_INCREASE_INTERVAL_MS = 5000,
     MIN_WORLD_VELOCITY = 0.4,
     -- Catch up after an uneven frame, but never apply a large pause/resume jump.
