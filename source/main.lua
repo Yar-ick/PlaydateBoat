@@ -12,6 +12,10 @@ import "ShrinkCollectable"
 import "SpeedReductionCollectable"
 import "InteractiveSpawn"
 import "DecorationManager"
+import "Ramp"
+import "BoatJump"
+import "LandingSplash"
+import "ScoreFlyEffect"
 import "AbilityTopUI"
 import "UpgradeMenuUI"
 import "ScreenShake"
@@ -73,6 +77,13 @@ local selectAbilitySoundPlayer = pds.sampleplayer.new("sounds/SelectAbility")
 local openUpgradeMenuSoundPlayer = pds.sampleplayer.new("sounds/OpenUpgradeMenu")
 local closeUpgradeMenuSoundPlayer = pds.sampleplayer.new("sounds/CloseUpgradeMenu")
 local startJourneySoundPlayer = pds.sampleplayer.new("sounds/StartJourney")
+local rampSoundPlayers = {
+    takeoff = pds.sampleplayer.new("sounds/RampTakeoff"),
+    landing = pds.sampleplayer.new("sounds/WaterLanding"),
+    success = pds.sampleplayer.new("sounds/AbilityUpgradeSuccess3")
+}
+rampSoundPlayers.success:setRate(TUNING.RAMP_SUCCESS_SOUND_RATE)
+rampSoundPlayers.success:setVolume(TUNING.RAMP_SUCCESS_SOUND_VOLUME)
 local buyAbilitySoundPlayer = pds.sampleplayer.new("sounds/AbilityPurchaseSuccess")
 local noUpgradeSoundPlayer = pds.sampleplayer.new("sounds/NoUpgrade")
 local upgradeAbilitySoundPlayers = {
@@ -107,6 +118,9 @@ sfxChannel:addSource(selectAbilitySoundPlayer)
 sfxChannel:addSource(openUpgradeMenuSoundPlayer)
 sfxChannel:addSource(closeUpgradeMenuSoundPlayer)
 sfxChannel:addSource(startJourneySoundPlayer)
+sfxChannel:addSource(rampSoundPlayers.takeoff)
+sfxChannel:addSource(rampSoundPlayers.landing)
+sfxChannel:addSource(rampSoundPlayers.success)
 sfxChannel:addSource(buyAbilitySoundPlayer)
 sfxChannel:addSource(noUpgradeSoundPlayer)
 
@@ -504,6 +518,10 @@ local collectableSprites = {}
 local decorationSprites = {}
 local interactableObjectGroups = { rockSprites, collectableSprites, decorationSprites }
 
+Ramp.initialize(TUNING, interactableObjectGroups)
+BoatJump.initialize(TUNING)
+ScoreFlyEffect.initialize(TUNING)
+
 for i = 1, #rockImages do
     rockImageWidths[i], rockImageHeights[i] = rockImages[i]:getSize()
 end
@@ -770,7 +788,7 @@ local function updatePlayerScale(elapsedMilliseconds)
         currentPlayerScale += scaleDifference * TUNING.PLAYER_SCALE_INTERPOLATION_SPEED
     end
 
-    playerSprite:setScale(currentPlayerScale)
+    playerSprite:setScale(currentPlayerScale * BoatJump.getScale())
     playerSprite:setCollideRect(
         playerCollisionX * currentPlayerScale,
         playerCollisionY * currentPlayerScale,
@@ -803,7 +821,10 @@ local function updateDashCooldown(elapsedMilliseconds)
 end
 
 local function startDash(crankPositionForVelocity)
-    if isAbilityPurchased("dash") == false or dashCooldownRemainingMilliseconds > 0 then
+    if BoatJump.isAirborne()
+        or isAbilityPurchased("dash") == false
+        or dashCooldownRemainingMilliseconds > 0
+    then
         return false
     end
 
@@ -1036,6 +1057,7 @@ local function clearWakeLines()
         wakeLinePool[i].active = false
     end
 
+    LandingSplash.reset()
     WakeLayer.markDirty()
 end
 
@@ -1068,7 +1090,8 @@ local function updateWakeLines(
     currentVelocityAngle,
     playerSpriteIndexFromAngle,
     isDashing,
-    worldDisplacement
+    worldDisplacement,
+    allowSpawning
 )
     for i = 1, TUNING.WAKE_LINE_POOL_SIZE do
         local line = wakeLinePool[i]
@@ -1087,6 +1110,10 @@ local function updateWakeLines(
     end
 
     WakeLayer.markDirty()
+
+    if allowSpawning == false then
+        return
+    end
 
     local emitterOffset = playerParticleEmitterOffsets[playerSpriteIndexFromAngle]
     local engineX = playerX + emitterOffset.x * currentPlayerScale
@@ -1160,11 +1187,13 @@ local function drawWakeLines()
     end
 
     Steamboat.drawWakeLines()
+    LandingSplash.draw()
 
     pdg.setLineWidth(previousLineWidth)
     pdg.setColor(previousColor)
 end
 
+LandingSplash.initialize(TUNING)
 WakeLayer.initialize(drawWakeLines, TUNING.WAKE_Z_INDEX)
 
 local function drawDashChargeChevrons(currentVelocityAngle, drawWhiteBackground)
@@ -1548,7 +1577,7 @@ local function destroyRock(rock)
     rock:setVisible(false)
 end
 
-local function handlePlayerCollisions(collisions, length)
+local function handlePlayerCollisions(collisions, length, takeoffSpeed)
     -- Temporarily expose the complete scaled boat bounds for pickup checks. Rock
     -- collisions continue to use the smaller gameplay hitbox restored below.
     playerSprite:setCollideRect(
@@ -1557,6 +1586,29 @@ local function handlePlayerCollisions(collisions, length)
         playerImageWidth * currentPlayerScale,
         playerImageHeight * currentPlayerScale
     )
+
+    if BoatJump.isAirborne() == false then
+        for i = 1, length do
+            local other = collisions[i].other
+
+            if other ~= nil
+                and other.active
+                and other.objectType == "ramp"
+                and other.used == false
+                and playerSprite:alphaCollision(other)
+            then
+                if BoatJump.start(takeoffSpeed, playerSpeedMode == 2) then
+                    Ramp.markUsed(other, playerX)
+                    playSoundOneShot(rampSoundPlayers.takeoff)
+                    xVelocity *= TUNING.RAMP_JUMP_HORIZONTAL_SPEED_RETENTION
+                    dashVelocityX = dashVelocityX
+                        * TUNING.RAMP_JUMP_HORIZONTAL_SPEED_RETENTION
+                        - TUNING.RAMP_JUMP_LEFT_BOOST
+                end
+                break
+            end
+        end
+    end
 
     for i = 1, #collectableSprites do
         local collectable = collectableSprites[i]
@@ -1575,6 +1627,10 @@ local function handlePlayerCollisions(collisions, length)
         playerCollisionWidth * currentPlayerScale,
         playerCollisionHeight * currentPlayerScale
     )
+
+    if BoatJump.isAirborne() then
+        return false
+    end
 
     for i = 1, length do
         local other = collisions[i].other
@@ -1612,9 +1668,11 @@ end
 
 local function hideGameplayWorld()
     clearWakeLines()
+    ScoreFlyEffect.reset()
     resetCollectables()
     decorationManager:reset()
     clearRockExplosions()
+    Ramp.reset()
     Steamboat.reset()
 
     for i = 1, TUNING.MAX_ROCKS do
@@ -1640,6 +1698,8 @@ local function rewindGameplayWorld(elapsedMilliseconds, displacement)
             end
         end
     end
+
+    remainingObjectCount += Ramp.rewind(displacement)
 
     for i = 1, #collectableSprites do
         local collectable = collectableSprites[i]
@@ -1679,6 +1739,7 @@ end
 
 local function prepareNewRun()
     ScreenShake.reset()
+    BoatJump.reset()
     xVelocity = 0
     yVelocity = 0
     targetXVelocity = 0
@@ -2418,22 +2479,53 @@ function playdate.update()
         end
     end
 
+    Ramp.update(
+        elapsedMilliseconds,
+        worldDisplacement,
+        rockSprites,
+        interpolatedWorldVelocity,
+        Difficulty.getMaxWorldVelocity()
+    )
+
+    if Ramp.consumeScreenEntry() then
+        for i = 1, TUNING.MAX_ROCKS do
+            local rock = rockSprites[i]
+
+            if rock.active
+                and Ramp.isProtectedRock(rock) == false
+                and rock.x + rock.imageWidth / 2 < 0
+            then
+                rock.active = false
+                rock:setVisible(false)
+            end
+        end
+    end
+
     decorationManager:update(elapsedMilliseconds, worldDisplacement, interpolatedWorldVelocity)
     updateCollectables(elapsedMilliseconds, worldDisplacement)
     updateRockExplosions(elapsedMilliseconds, worldDisplacement)
+    LandingSplash.update(elapsedMilliseconds, worldDisplacement)
+    if ScoreFlyEffect.update(elapsedMilliseconds) then
+        playerScore += TUNING.RAMP_JUMP_SCORE_REWARD
+    end
 
     -- Recycle rocks after collectables move/spawn so the shared overlap check sees
     -- every interactable object at its final position for this frame.
-    for i = 1, TUNING.MAX_ROCKS do
-        local rock = rockSprites[i]
+    if BoatJump.shouldPauseRockSpawning() == false
+        and Ramp.shouldPauseRockSpawning() == false
+    then
+        for i = 1, TUNING.MAX_ROCKS do
+            local rock = rockSprites[i]
 
-        if rock.active == false then
-            resetRockPosition(rock)
+            if rock.active == false then
+                resetRockPosition(rock)
+            end
         end
     end
 
     Steamboat.update(elapsedMilliseconds, worldDisplacement, rockSprites)
 
+    local didLand = BoatJump.update(elapsedMilliseconds)
     updatePlayerScale(elapsedMilliseconds)
     updateDashCooldown(elapsedMilliseconds)
 
@@ -2446,16 +2538,29 @@ function playdate.update()
         playerVelocityMultiplier = 2.25
     end
 
+    if BoatJump.isAirborne() then
+        playerVelocityMultiplier *= TUNING.RAMP_AIRBORNE_CONTROL_MULTIPLIER
+    end
+
     targetXVelocity =
         math.cos(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
     targetYVelocity =
         math.sin(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
 
-    xVelocity += (targetXVelocity - xVelocity) * velocityInterpolationSpeed
-    yVelocity += (targetYVelocity - yVelocity) * velocityInterpolationSpeed
+    local currentVelocityInterpolationSpeed = velocityInterpolationSpeed
+
+    if BoatJump.isAirborne() then
+        currentVelocityInterpolationSpeed = TUNING.RAMP_AIRBORNE_VELOCITY_INTERPOLATION_SPEED
+    end
+
+    xVelocity += (targetXVelocity - xVelocity) * currentVelocityInterpolationSpeed
+    yVelocity += (targetYVelocity - yVelocity) * currentVelocityInterpolationSpeed
 
     local movementVelocityX = xVelocity + dashVelocityX
     local movementVelocityY = yVelocity + dashVelocityY
+    local movementSpeed = math.sqrt(
+        movementVelocityX * movementVelocityX + movementVelocityY * movementVelocityY
+    )
     local currentVelocityAngle =
         math.normalizeAngle(math.deg(math.atan2(movementVelocityY, movementVelocityX)) + 90)
     local playerSpriteIndexFromAngle =
@@ -2472,15 +2577,22 @@ function playdate.update()
     )
     updateWaterFlowSound(interpolatedWorldVelocity)
     updateGameMusic(interpolatedWorldVelocity)
-    playerX += movementVelocityX + waterStreamVelocity
+    local currentWaterStreamVelocity = waterStreamVelocity
+
+    if BoatJump.isAirborne() then
+        currentWaterStreamVelocity *= TUNING.RAMP_AIRBORNE_WATER_STREAM_MULTIPLIER
+    end
+
+    playerX += movementVelocityX + currentWaterStreamVelocity
     playerY += movementVelocityY
 
     local actualX, actualY, collisions, length = playerSprite:moveWithCollisions(playerX, playerY)
     playerX = actualX
     playerY = actualY
 
-    local scaledPlayerWidth = playerImageWidth * currentPlayerScale
-    local scaledPlayerHeight = playerImageHeight * currentPlayerScale
+    local visualPlayerScale = currentPlayerScale * BoatJump.getScale()
+    local scaledPlayerWidth = playerImageWidth * visualPlayerScale
+    local scaledPlayerHeight = playerImageHeight * visualPlayerScale
     playerX = math.clamp(playerX, scaledPlayerWidth / 2, 400 - scaledPlayerWidth / 3)
     playerY = math.clamp(
         playerY,
@@ -2490,7 +2602,24 @@ function playdate.update()
     playerSprite:moveTo(playerX, playerY)
     updateDashInertia(elapsedMilliseconds)
 
-    local didCrash = handlePlayerCollisions(collisions, length)
+    if didLand then
+        LandingSplash.start(playerX, playerY, currentPlayerScale)
+        playSoundOneShot(rampSoundPlayers.landing)
+    end
+
+    if Ramp.updateJumpChallenge(
+        playerX,
+        BoatJump.isAirborne() or didLand
+    ) then
+        ScoreFlyEffect.start(playerX, playerY - playerImageHeight * currentPlayerScale / 2)
+        playSoundOneShot(rampSoundPlayers.success)
+    end
+
+    local didCrash = handlePlayerCollisions(
+        collisions,
+        length,
+        interpolatedWorldVelocity + movementSpeed
+    )
 
     if didCrash then
         if Difficulty.recordScore(playerScore) then
@@ -2513,7 +2642,8 @@ function playdate.update()
             currentVelocityAngle,
             playerSpriteIndexFromAngle,
             isDashing,
-            worldDisplacement
+            worldDisplacement,
+            BoatJump.isAirborne() == false
         )
     end
 
@@ -2528,4 +2658,5 @@ function playdate.update()
 
     ScreenShake.clearDrawOffset()
     drawHud()
+    ScoreFlyEffect.draw()
 end
