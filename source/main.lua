@@ -465,13 +465,18 @@ local launchVisualAngle = 180
 local menuBoatFloatElapsedMilliseconds = 0
 local launchStartX = TUNING.MAIN_MENU_BOAT_X
 local launchStartY = TUNING.MAIN_MENU_BOAT_Y
+GameplayProgress = { suspended = true }
 
 local scoreTimer = pd.timer.new(1000, function()
-    if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
+    if GameplayProgress.suspended == false
+        and BoatGameState == GameState.ALIVE
+        and pd.isCrankDocked() == false
+    then
         playerScore += playerScoreStep
     end
 end)
 scoreTimer.repeats = true
+scoreTimer:pause()
 
 -- Velocity inertia variables
 local xVelocity = 0
@@ -1740,6 +1745,7 @@ end
 local function prepareNewRun()
     ScreenShake.reset()
     BoatJump.reset()
+    GameplayProgress.suspended = true
     xVelocity = 0
     yVelocity = 0
     targetXVelocity = 0
@@ -1778,6 +1784,7 @@ local function prepareNewRun()
     crashReturnDelayElapsedMilliseconds = 0
 
     scoreTimer:reset()
+    scoreTimer:pause()
     velocityIncreaseTimer:reset()
     velocityIncreaseTimer:pause()
     stopGameplayLoopSounds()
@@ -1871,7 +1878,9 @@ end
 
 local function beginGameplay()
     BoatGameState = GameState.ALIVE
+    GameplayProgress.suspended = false
     scoreTimer:reset()
+    scoreTimer:start()
     velocityIncreaseTimer:reset()
     velocityIncreaseTimer:start()
 
@@ -1915,33 +1924,25 @@ end
 Steamboat.initialize(TUNING, sfxChannel, destroyRock, explosionImagetable)
 enterMainMenu()
 
-function playdate.crankDocked()
+function GameplayProgress.pause()
+    GameplayProgress.suspended = true
+    scoreTimer:pause()
     velocityIncreaseTimer:pause()
+end
 
-    if BoatGameState == GameState.ALIVE then
-        stopGameplayLoopSounds()
-    else
-        stopBoatEngineSound()
-        stopWaterFlowSound()
+function GameplayProgress.resume()
+    if BoatGameState ~= GameState.ALIVE or pd.isCrankDocked() then
+        return
     end
+
+    GameplayProgress.suspended = false
+    scoreTimer:start()
+    velocityIncreaseTimer:start()
 end
 
-function playdate.crankUndocked()
+function GameplayProgress.resumeAfterSystemInterruption()
     lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
-
-    if BoatGameState == GameState.ALIVE then
-        velocityIncreaseTimer:start()
-        startGameplayLoopSounds()
-    end
-end
-
-function playdate.gameWillPause()
-    saveProgress()
-    stopGameplayLoopSounds()
-end
-
-function playdate.gameWillResume()
-    lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
+    GameplayProgress.resume()
 
     if BoatGameState == GameState.ALIVE and pd.isCrankDocked() == false then
         startGameplayLoopSounds()
@@ -1958,6 +1959,46 @@ function playdate.gameWillResume()
     end
 end
 
+function playdate.crankDocked()
+    GameplayProgress.pause()
+
+    if BoatGameState == GameState.ALIVE then
+        stopGameplayLoopSounds()
+    else
+        stopBoatEngineSound()
+        stopWaterFlowSound()
+    end
+end
+
+function playdate.crankUndocked()
+    lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
+
+    if BoatGameState == GameState.ALIVE then
+        GameplayProgress.resume()
+        startGameplayLoopSounds()
+    end
+end
+
+function playdate.gameWillPause()
+    saveProgress()
+    GameplayProgress.pause()
+    stopGameplayLoopSounds()
+end
+
+function playdate.gameWillResume()
+    GameplayProgress.resumeAfterSystemInterruption()
+end
+
+function playdate.deviceWillLock()
+    saveProgress()
+    GameplayProgress.pause()
+    stopGameplayLoopSounds()
+end
+
+function playdate.deviceDidUnlock()
+    GameplayProgress.resumeAfterSystemInterruption()
+end
+
 function playdate.gameWillTerminate()
     saveProgress()
     stopGameplayLoopSounds()
@@ -1965,6 +2006,7 @@ end
 
 function playdate.deviceWillSleep()
     saveProgress()
+    GameplayProgress.pause()
     stopGameplayLoopSounds()
 end
 
@@ -2284,7 +2326,7 @@ function playdate.update()
     end
 
     if BoatGameState == GameState.WAITING_FOR_CRANK then
-        velocityIncreaseTimer:pause()
+        GameplayProgress.pause()
         startBoatEngineSound()
         startWaterFlowSound()
         startMenuMusic()
@@ -2448,7 +2490,7 @@ function playdate.update()
         pdg.sprite.update()
         drawHud()
         pd.ui.crankIndicator:draw()
-        velocityIncreaseTimer:pause()
+        GameplayProgress.pause()
         return
     end
 
@@ -2630,7 +2672,7 @@ function playdate.update()
         BoatGameState = GameState.CRASH_REWIND
         presentationElapsedMilliseconds = 0
         crashReturnDelayElapsedMilliseconds = 0
-        velocityIncreaseTimer:pause()
+        GameplayProgress.pause()
         stopGameplayLoopSounds()
         playerSprite:setScale(0)
         clearWakeLines()
