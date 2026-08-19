@@ -24,6 +24,7 @@ import "Difficulty"
 import "DifficultyMenuUI"
 import "MainMenuHUDAnimation"
 import "Steamboat"
+import "Whirlpool"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -289,6 +290,7 @@ local function startGameplayLoopSounds()
     startWaterFlowSound()
     startGameplayMusic()
     Steamboat.resumeSounds()
+    Whirlpool.resumeSounds()
 end
 
 local function stopGameplayLoopSounds()
@@ -296,6 +298,7 @@ local function stopGameplayLoopSounds()
     stopWaterFlowSound()
     pauseGameMusic()
     Steamboat.stopSounds()
+    Whirlpool.stopSounds()
 end
 
 local explosionX, explosionY = 0, 0
@@ -524,6 +527,7 @@ local decorationSprites = {}
 local interactableObjectGroups = { rockSprites, collectableSprites, decorationSprites }
 
 Ramp.initialize(TUNING, interactableObjectGroups)
+Whirlpool.initialize(TUNING, sfxChannel, interactableObjectGroups)
 BoatJump.initialize(TUNING)
 ScoreFlyEffect.initialize(TUNING)
 
@@ -851,6 +855,7 @@ local function startDash(crankPositionForVelocity)
     dashCooldownRemainingMilliseconds = dashCooldownDurationMilliseconds
     dashUiProgress = 1
     dashUiIsDraining = true
+    Whirlpool.onDash(playerX, playerY)
     playSoundOneShot(dashSoundPlayer)
     return true
 end
@@ -1192,6 +1197,7 @@ local function drawWakeLines()
     end
 
     Steamboat.drawWakeLines()
+    Whirlpool.draw()
     LandingSplash.draw()
 
     pdg.setLineWidth(previousLineWidth)
@@ -1679,6 +1685,7 @@ local function hideGameplayWorld()
     clearRockExplosions()
     Ramp.reset()
     Steamboat.reset()
+    Whirlpool.reset()
 
     for i = 1, TUNING.MAX_ROCKS do
         rockSprites[i].active = false
@@ -1705,6 +1712,7 @@ local function rewindGameplayWorld(elapsedMilliseconds, displacement)
     end
 
     remainingObjectCount += Ramp.rewind(displacement)
+    remainingObjectCount += Whirlpool.rewind(displacement)
 
     for i = 1, #collectableSprites do
         local collectable = collectableSprites[i]
@@ -1889,6 +1897,7 @@ local function beginGameplay()
     end
 
     Steamboat.beginRun(Difficulty.getSelectedMode().STEAMBOAT_SPAWN_CONFIG)
+    Whirlpool.beginRun(Difficulty.getSelectedMode().WHIRLPOOL_SPAWN_CONFIG)
 
     lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
     startGameplayLoopSounds()
@@ -2568,6 +2577,7 @@ function playdate.update()
     end
 
     Steamboat.update(elapsedMilliseconds, worldDisplacement, rockSprites)
+    Whirlpool.update(elapsedMilliseconds, worldDisplacement)
 
     local didLand = BoatJump.update(elapsedMilliseconds)
     updatePlayerScale(elapsedMilliseconds)
@@ -2600,18 +2610,29 @@ function playdate.update()
     xVelocity += (targetXVelocity - xVelocity) * currentVelocityInterpolationSpeed
     yVelocity += (targetYVelocity - yVelocity) * currentVelocityInterpolationSpeed
 
-    local movementVelocityX = xVelocity + dashVelocityX
-    local movementVelocityY = yVelocity + dashVelocityY
+    local dashSpeed = math.sqrt(dashVelocityX * dashVelocityX + dashVelocityY * dashVelocityY)
+    local whirlpoolPullX, whirlpoolPullY = Whirlpool.getAttraction(
+        elapsedMilliseconds,
+        playerX,
+        playerY,
+        BoatJump.isAirborne(),
+        playerSpeedMode == 2,
+        dashSpeed
+    )
+    local movementVelocityX = xVelocity + dashVelocityX + whirlpoolPullX
+    local movementVelocityY = yVelocity + dashVelocityY + whirlpoolPullY
     local movementSpeed = math.sqrt(
         movementVelocityX * movementVelocityX + movementVelocityY * movementVelocityY
     )
     local currentVelocityAngle =
-        math.normalizeAngle(math.deg(math.atan2(movementVelocityY, movementVelocityX)) + 90)
+        math.normalizeAngle(math.deg(math.atan2(
+            yVelocity + dashVelocityY,
+            xVelocity + dashVelocityX
+        )) + 90)
     local playerSpriteIndexFromAngle =
         math.clamp(math.ceil(currentVelocityAngle / 7.5), 1, playerImagetableSize)
     playerSprite:setImage(playerImagetable:getImage(playerSpriteIndexFromAngle))
 
-    local dashSpeed = math.sqrt(dashVelocityX * dashVelocityX + dashVelocityY * dashVelocityY)
     local isDashing = dashSpeed >= TUNING.DASH_WAKE_MINIMUM_VELOCITY
     updateSpeedometerNeedle(dashSpeed)
     updateBoatEngineSound(
@@ -2634,7 +2655,16 @@ function playdate.update()
     playerX = actualX
     playerY = actualY
 
-    local visualPlayerScale = currentPlayerScale * BoatJump.getScale()
+    local whirlpoolCaptureX, whirlpoolCaptureY = Whirlpool.getCapturePosition()
+
+    if whirlpoolCaptureX ~= nil then
+        playerX = whirlpoolCaptureX
+        playerY = whirlpoolCaptureY
+    end
+
+    local visualPlayerScale = currentPlayerScale
+        * BoatJump.getScale()
+        * Whirlpool.getPlayerScale()
     local scaledPlayerWidth = playerImageWidth * visualPlayerScale
     local scaledPlayerHeight = playerImageHeight * visualPlayerScale
     playerX = math.clamp(playerX, scaledPlayerWidth / 2, 400 - scaledPlayerWidth / 3)
@@ -2644,6 +2674,7 @@ function playdate.update()
         240 - scaledPlayerHeight / 3
     )
     playerSprite:moveTo(playerX, playerY)
+    playerSprite:setScale(visualPlayerScale)
     updateDashInertia(elapsedMilliseconds)
 
     if didLand then
@@ -2666,11 +2697,15 @@ function playdate.update()
         playSoundOneShot(rampSoundPlayers.success)
     end
 
-    local didCrash = handlePlayerCollisions(
-        collisions,
-        length,
-        interpolatedWorldVelocity + movementSpeed
-    )
+    local didCrash = Whirlpool.isCaptureComplete()
+
+    if Whirlpool.isCapturing() == false then
+        didCrash = handlePlayerCollisions(
+            collisions,
+            length,
+            interpolatedWorldVelocity + movementSpeed
+        )
+    end
 
     if didCrash then
         if Difficulty.recordScore(playerScore) then
@@ -2694,7 +2729,7 @@ function playdate.update()
             playerSpriteIndexFromAngle,
             isDashing,
             worldDisplacement,
-            BoatJump.isAirborne() == false
+            BoatJump.isAirborne() == false and Whirlpool.isCapturing() == false
         )
     end
 

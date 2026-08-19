@@ -1,0 +1,428 @@
+local pdg <const> = playdate.graphics
+local pds <const> = playdate.sound
+
+local tuning = nil
+local spawnConfig = nil
+local reservation = nil
+local objectGroups = nil
+local attractionSoundPlayer = nil
+local escapeSoundPlayer = nil
+local particles = {}
+local state = "disabled"
+local spawnRemainingMilliseconds = 0
+local x = 0
+local y = 0
+local animationElapsedMilliseconds = 0
+local fastEscapeElapsedMilliseconds = 0
+local attracting = false
+local escaped = false
+local captureElapsedMilliseconds = 0
+local capturing = false
+local captureComplete = false
+
+Whirlpool = {}
+
+local function stopSound(soundPlayer)
+    if soundPlayer ~= nil and soundPlayer:isPlaying() then
+        soundPlayer:stop()
+    end
+end
+
+local function startAttractionSound()
+    if attractionSoundPlayer:isPlaying() == false then
+        attractionSoundPlayer:setOffset(0)
+        attractionSoundPlayer:setRate(tuning.WHIRLPOOL_ATTRACTION_SOUND_RATE)
+        attractionSoundPlayer:setVolume(tuning.WHIRLPOOL_ATTRACTION_SOUND_VOLUME)
+        attractionSoundPlayer:play(0)
+    end
+end
+
+local function resetCapture()
+    captureElapsedMilliseconds = 0
+    capturing = false
+    captureComplete = false
+end
+
+local function stopAttraction()
+    attracting = false
+    fastEscapeElapsedMilliseconds = 0
+    resetCapture()
+    stopSound(attractionSoundPlayer)
+end
+
+local function resetSpawnCountdown()
+    if spawnConfig == nil then
+        spawnRemainingMilliseconds = 0
+        return
+    end
+
+    spawnRemainingMilliseconds = math.random(
+        spawnConfig.MINIMUM_INTERVAL_MS,
+        spawnConfig.MAXIMUM_INTERVAL_MS
+    )
+end
+
+local function deactivate(resetCountdown)
+    state = "idle"
+    reservation.active = false
+    escaped = false
+    stopAttraction()
+
+    if resetCountdown then
+        resetSpawnCountdown()
+    end
+
+    WakeLayer.markDirty()
+end
+
+local function playEscapeSound()
+    stopSound(escapeSoundPlayer)
+    escapeSoundPlayer:setOffset(0)
+    escapeSoundPlayer:setVolume(tuning.WHIRLPOOL_ESCAPE_SOUND_VOLUME)
+    escapeSoundPlayer:play()
+end
+
+local function escape()
+    if state ~= "active" or escaped then
+        return false
+    end
+
+    escaped = true
+    stopAttraction()
+    playEscapeSound()
+    return true
+end
+
+local function isWithinEscapeRadius(playerX, playerY)
+    if state ~= "active" or escaped then
+        return false
+    end
+
+    local deltaX = x - playerX
+    local deltaY = y - playerY
+    return deltaX * deltaX + deltaY * deltaY
+        <= tuning.WHIRLPOOL_ESCAPE_RADIUS * tuning.WHIRLPOOL_ESCAPE_RADIUS
+end
+
+local function trySpawn()
+    if math.random() * 100 > spawnConfig.SPAWN_CHANCE_PERCENT then
+        resetSpawnCountdown()
+        return
+    end
+
+    local spawnX, spawnY = InteractiveSpawn.findPosition(
+        objectGroups,
+        reservation,
+        reservation.imageWidth,
+        reservation.imageHeight,
+        tuning.WHIRLPOOL_SPAWN_MINIMUM_X,
+        tuning.WHIRLPOOL_SPAWN_MAXIMUM_X,
+        tuning.WHIRLPOOL_SPAWN_MINIMUM_Y,
+        tuning.WHIRLPOOL_SPAWN_MAXIMUM_Y,
+        tuning.INTERACTIVE_SPAWN_PADDING,
+        tuning.INTERACTIVE_SPAWN_ATTEMPTS
+    )
+
+    if spawnX == nil then
+        spawnRemainingMilliseconds = tuning.WHIRLPOOL_SPAWN_RETRY_INTERVAL_MS
+        return
+    end
+
+    x = spawnX
+    y = spawnY
+    reservation.x = x
+    reservation.y = y
+    reservation.active = true
+    animationElapsedMilliseconds = math.random(0, 2000)
+    fastEscapeElapsedMilliseconds = 0
+    attracting = false
+    escaped = false
+    state = "active"
+    WakeLayer.markDirty()
+end
+
+function Whirlpool.initialize(settings, sfxChannel, interactableGroups)
+    tuning = settings
+    objectGroups = interactableGroups
+    attractionSoundPlayer = pds.sampleplayer.new("sounds/WhirlpoolAttraction")
+    escapeSoundPlayer = pds.sampleplayer.new("sounds/WhirlpoolEscape")
+    sfxChannel:addSource(attractionSoundPlayer)
+    sfxChannel:addSource(escapeSoundPlayer)
+
+    reservation = {
+        active = false,
+        x = 0,
+        y = 0,
+        imageWidth = tuning.WHIRLPOOL_SPAWN_RESERVATION_SIZE,
+        imageHeight = tuning.WHIRLPOOL_SPAWN_RESERVATION_SIZE
+    }
+    objectGroups[#objectGroups + 1] = { reservation }
+
+    for index = 1, tuning.WHIRLPOOL_PARTICLE_COUNT do
+        particles[index] = {
+            angleOffset = math.random() * math.pi * 2,
+            orbitRadius = math.random(
+                tuning.WHIRLPOOL_PARTICLE_MINIMUM_ORBIT_RADIUS,
+                tuning.WHIRLPOOL_PARTICLE_MAXIMUM_ORBIT_RADIUS
+            ),
+            angularSpeed = math.random(
+                tuning.WHIRLPOOL_PARTICLE_MINIMUM_SPEED_PERCENT,
+                tuning.WHIRLPOOL_PARTICLE_MAXIMUM_SPEED_PERCENT
+            ) / 100,
+            radius = math.random(
+                tuning.WHIRLPOOL_PARTICLE_MINIMUM_RADIUS,
+                tuning.WHIRLPOOL_PARTICLE_MAXIMUM_RADIUS
+            ),
+            pulseOffset = math.random() * math.pi * 2
+        }
+    end
+end
+
+function Whirlpool.beginRun(difficultySpawnConfig)
+    Whirlpool.reset()
+    spawnConfig = difficultySpawnConfig
+    state = "idle"
+    resetSpawnCountdown()
+end
+
+function Whirlpool.update(elapsedMilliseconds, worldDisplacement)
+    if state == "idle" then
+        spawnRemainingMilliseconds -= elapsedMilliseconds
+
+        if spawnRemainingMilliseconds <= 0 then
+            trySpawn()
+        end
+
+        return
+    end
+
+    if state ~= "active" then
+        return
+    end
+
+    x += worldDisplacement
+    reservation.x = x
+    animationElapsedMilliseconds += elapsedMilliseconds
+
+    if x - tuning.WHIRLPOOL_VISUAL_RADIUS > 400 then
+        deactivate(true)
+        return
+    end
+
+    WakeLayer.markDirty()
+end
+
+function Whirlpool.getAttraction(
+    elapsedMilliseconds,
+    playerX,
+    playerY,
+    isAirborne,
+    isFastMode,
+    dashSpeed
+)
+    if state ~= "active" or escaped or isAirborne then
+        stopAttraction()
+        return 0, 0
+    end
+
+    local isVisible = x + tuning.WHIRLPOOL_VISUAL_RADIUS >= 0
+        and x - tuning.WHIRLPOOL_VISUAL_RADIUS <= 400
+
+    if isVisible == false then
+        stopAttraction()
+        return 0, 0
+    end
+
+    local deltaX = x - playerX
+    local deltaY = y - playerY
+    local distance = math.sqrt(deltaX * deltaX + deltaY * deltaY)
+
+    if distance > tuning.WHIRLPOOL_ATTRACTION_RADIUS then
+        stopAttraction()
+        return 0, 0
+    end
+
+    if attracting == false then
+        attracting = true
+        startAttractionSound()
+    end
+
+    local canEscape = distance <= tuning.WHIRLPOOL_ESCAPE_RADIUS
+
+    if canEscape and dashSpeed >= tuning.WHIRLPOOL_DASH_ESCAPE_MINIMUM_SPEED then
+        escape()
+        return 0, 0
+    end
+
+    if isFastMode and canEscape then
+        fastEscapeElapsedMilliseconds += elapsedMilliseconds
+
+        if fastEscapeElapsedMilliseconds >= tuning.WHIRLPOOL_FAST_ESCAPE_HOLD_MS then
+            escape()
+            return 0, 0
+        end
+    else
+        fastEscapeElapsedMilliseconds = 0
+    end
+
+    if distance <= tuning.WHIRLPOOL_CAPTURE_RADIUS then
+        capturing = true
+        captureElapsedMilliseconds = math.min(
+            tuning.WHIRLPOOL_CAPTURE_DURATION_MS,
+            captureElapsedMilliseconds + elapsedMilliseconds
+        )
+        captureComplete = captureElapsedMilliseconds >= tuning.WHIRLPOOL_CAPTURE_DURATION_MS
+    else
+        resetCapture()
+    end
+
+    if distance <= 0.001 then
+        return 0, 0
+    end
+
+    local directionX = deltaX / distance
+    local directionY = deltaY / distance
+    local proximity = 1 - math.min(distance / tuning.WHIRLPOOL_ATTRACTION_RADIUS, 1)
+    local forceProgress = proximity ^ tuning.WHIRLPOOL_ATTRACTION_FORCE_POWER
+    local radialForce = tuning.WHIRLPOOL_ATTRACTION_MINIMUM_FORCE
+        + (tuning.WHIRLPOOL_ATTRACTION_MAXIMUM_FORCE
+            - tuning.WHIRLPOOL_ATTRACTION_MINIMUM_FORCE) * forceProgress
+    local frameScale = elapsedMilliseconds / (1000 / 30)
+    local pullDistance = math.min(radialForce * frameScale, distance)
+
+    return directionX * pullDistance, directionY * pullDistance
+end
+
+function Whirlpool.isCapturing()
+    return capturing
+end
+
+function Whirlpool.getCapturePosition()
+    if capturing == false then
+        return nil, nil
+    end
+
+    return x, y
+end
+
+function Whirlpool.getPlayerScale()
+    if capturing == false then
+        return 1
+    end
+
+    return math.max(
+        0,
+        1 - captureElapsedMilliseconds / tuning.WHIRLPOOL_CAPTURE_DURATION_MS
+    )
+end
+
+function Whirlpool.isCaptureComplete()
+    return captureComplete
+end
+
+function Whirlpool.onDash(playerX, playerY)
+    if isWithinEscapeRadius(playerX, playerY) then
+        escape()
+    end
+end
+
+function Whirlpool.draw()
+    if state ~= "active" then
+        return
+    end
+
+    local previousColor = pdg.getColor()
+    local previousLineWidth = pdg.getLineWidth()
+    local elapsedSeconds = animationElapsedMilliseconds / 1000
+
+    pdg.setColor(pdg.kColorBlack)
+    pdg.setLineWidth(1)
+
+    for ringIndex = 1, tuning.WHIRLPOOL_ARC_COUNT do
+        local radius = tuning.WHIRLPOOL_INNER_ARC_RADIUS
+            + (ringIndex - 1) * tuning.WHIRLPOOL_ARC_RADIUS_STEP
+        local startAngle = (
+            elapsedSeconds * tuning.WHIRLPOOL_ARC_ROTATION_DEGREES_PER_SECOND
+                + (ringIndex - 1) * tuning.WHIRLPOOL_ARC_ANGLE_OFFSET
+        ) % 360
+        pdg.drawArc(
+            x,
+            y,
+            radius,
+            startAngle,
+            startAngle + tuning.WHIRLPOOL_ARC_LENGTH_DEGREES
+        )
+    end
+
+    for index = 1, #particles do
+        local particle = particles[index]
+        local angle = particle.angleOffset
+            + elapsedSeconds * particle.angularSpeed * math.pi * 2
+        local radialPulse = math.sin(
+            elapsedSeconds * tuning.WHIRLPOOL_PARTICLE_PULSE_SPEED
+                + particle.pulseOffset
+        ) * tuning.WHIRLPOOL_PARTICLE_PULSE_DISTANCE
+        local orbitRadius = particle.orbitRadius + radialPulse
+        local particleX = x + math.cos(angle) * orbitRadius
+        local particleY = y + math.sin(angle) * orbitRadius
+            * tuning.WHIRLPOOL_PARTICLE_VERTICAL_SCALE
+
+        pdg.fillCircleAtPoint(particleX, particleY, particle.radius)
+    end
+
+    pdg.fillCircleAtPoint(x, y, tuning.WHIRLPOOL_CORE_RADIUS)
+    pdg.setColor(pdg.kColorWhite)
+    pdg.fillCircleAtPoint(x, y, math.max(1, tuning.WHIRLPOOL_CORE_RADIUS - 2))
+    pdg.setLineWidth(previousLineWidth)
+    pdg.setColor(previousColor)
+end
+
+function Whirlpool.stopSounds()
+    stopSound(attractionSoundPlayer)
+    stopSound(escapeSoundPlayer)
+end
+
+function Whirlpool.resumeSounds()
+    if attracting then
+        startAttractionSound()
+    end
+end
+
+function Whirlpool.rewind(displacement)
+    Whirlpool.stopSounds()
+
+    if state ~= "active" then
+        state = "disabled"
+        return 0
+    end
+
+    x += displacement
+    reservation.x = x
+    WakeLayer.markDirty()
+
+    if x + tuning.WHIRLPOOL_VISUAL_RADIUS < 0 then
+        state = "disabled"
+        reservation.active = false
+        return 0
+    end
+
+    return 1
+end
+
+function Whirlpool.reset()
+    Whirlpool.stopSounds()
+    spawnConfig = nil
+    state = "disabled"
+    spawnRemainingMilliseconds = 0
+    animationElapsedMilliseconds = 0
+    fastEscapeElapsedMilliseconds = 0
+    attracting = false
+    escaped = false
+    resetCapture()
+
+    if reservation ~= nil then
+        reservation.active = false
+    end
+
+    WakeLayer.markDirty()
+end
