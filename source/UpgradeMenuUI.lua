@@ -55,7 +55,7 @@ UpgradeMenuUI = {
     }
 }
 
-local upgradeNodeCenters <const> = { 120, 202, 284, 366 }
+local upgradeNodeCenters <const> = { 125, 205, 285, 365 }
 
 local function clamp01(value)
     return math.max(0, math.min(1, value))
@@ -155,7 +155,7 @@ local function drawWorkshopBackground(yOffset)
 end
 
 local function drawButtonPrompt(buttonImage, label, x, y)
-    buttonImage:drawScaled(x, y, 2)
+    buttonImage:draw(x, y)
     pdg.drawText(label, x + 30, y + 3)
 end
 
