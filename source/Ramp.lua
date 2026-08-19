@@ -12,7 +12,6 @@ local formationRocks = {}
 local formationLineX = 0
 local hasEnteredScreen = false
 local screenEntryPending = false
-local challengeStarted = false
 local previousPlayerRelativeX = nil
 local rewardAwarded = false
 
@@ -29,7 +28,6 @@ local function clearChallenge()
     protectedRocks = {}
     formationRocks = {}
     formationLineX = 0
-    challengeStarted = false
     previousPlayerRelativeX = nil
     rewardAwarded = false
 end
@@ -109,7 +107,6 @@ local function tryBuildFormation(availableRocks)
     for _ = 1, tuning.RAMP_FORMATION_PLACEMENT_ATTEMPTS do
         local selectedRocks = chooseFormationRocks(availableRocks)
         local excludedObjects = {}
-        local maximumRockWidth = 0
         local lineX = selectedRocks[1].x
         local centerY = math.random(
             tuning.RAMP_FORMATION_MINIMUM_CENTER_Y,
@@ -126,11 +123,9 @@ local function tryBuildFormation(availableRocks)
         for index = 1, #selectedRocks do
             local rock = selectedRocks[index]
             excludedObjects[rock] = true
-            maximumRockWidth = math.max(maximumRockWidth, rock.imageWidth)
         end
 
-        local rampX = lineX + maximumRockWidth / 2 + rampWidth / 2
-            + tuning.RAMP_ROCK_GAP
+        local rampX = lineX + tuning.RAMP_FORMATION_LINE_X_OFFSET
         local approachX = getApproachX(rampX)
         local isValid = rampX >= tuning.RAMP_SPAWN_MINIMUM_X
             and rampX + rampWidth / 2 <= tuning.RAMP_SPAWN_MAXIMUM_X
@@ -281,7 +276,7 @@ function Ramp.update(
             screenEntryPending = true
         end
 
-        if rampSprite.x - rampWidth / 2 > 400 then
+        if formationLineX > 400 then
             rampSprite.active = false
             rampSprite.used = false
             rampSprite:setVisible(false)
@@ -325,32 +320,34 @@ function Ramp.isProtectedRock(rock)
     return protectedRocks[rock] == true
 end
 
-function Ramp.markUsed(sprite, playerX)
+function Ramp.markUsed(sprite)
     if sprite == rampSprite then
         rampSprite.used = true
         approachReservation.active = false
-        challengeStarted = true
-        previousPlayerRelativeX = playerX - formationLineX
     end
 end
 
 function Ramp.updateJumpChallenge(playerX, isJumpActive)
-    if challengeStarted == false or rewardAwarded or isJumpActive == false then
+    if rampSprite.active == false or rewardAwarded then
         return false
     end
 
     local relativeX = playerX - formationLineX
+    local previousRelativeX = previousPlayerRelativeX
+    previousPlayerRelativeX = relativeX
 
-    if previousPlayerRelativeX ~= nil
-        and previousPlayerRelativeX > 0
-        and relativeX <= 0
+    if isJumpActive
+        and previousRelativeX ~= nil
+        and previousRelativeX ~= relativeX
+        and (
+            (previousRelativeX >= 0 and relativeX <= 0)
+            or (previousRelativeX <= 0 and relativeX >= 0)
+        )
     then
         rewardAwarded = true
-        challengeStarted = false
         return true
     end
 
-    previousPlayerRelativeX = relativeX
     return false
 end
 

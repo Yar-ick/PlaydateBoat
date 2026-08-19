@@ -1603,7 +1603,7 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed)
                 and playerSprite:alphaCollision(other)
             then
                 if BoatJump.start(takeoffSpeed, playerSpeedMode == 2) then
-                    Ramp.markUsed(other, playerX)
+                    Ramp.markUsed(other)
                     playSoundOneShot(rampSoundPlayers.takeoff)
                     xVelocity *= TUNING.RAMP_JUMP_HORIZONTAL_SPEED_RETENTION
                     dashVelocityX = dashVelocityX
