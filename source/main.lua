@@ -1652,7 +1652,7 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed)
                 and playerSprite:alphaCollision(other)
             then
                 if shieldHitsRemaining > 0 and Steamboat.explode() then
-                    shieldHitsRemaining -= 1
+                    shieldHitsRemaining = 0
                     playSoundOneShot(boatExplosionSoundPlayer)
                     ScreenShake.start(TUNING.STEAMBOAT_EXPLOSION_SCREEN_SHAKE)
                 else
@@ -2547,8 +2547,10 @@ function playdate.update()
     updateCollectables(elapsedMilliseconds, worldDisplacement)
     updateRockExplosions(elapsedMilliseconds, worldDisplacement)
     LandingSplash.update(elapsedMilliseconds, worldDisplacement)
-    if ScoreFlyEffect.update(elapsedMilliseconds) then
-        playerScore += TUNING.RAMP_JUMP_SCORE_REWARD
+    local reachedTrickScore = ScoreFlyEffect.update(elapsedMilliseconds)
+
+    if reachedTrickScore ~= nil then
+        playerScore += reachedTrickScore
     end
 
     -- Recycle rocks after collectables move/spawn so the shared overlap check sees
@@ -2649,11 +2651,18 @@ function playdate.update()
         playSoundOneShot(rampSoundPlayers.landing)
     end
 
-    if Ramp.updateJumpChallenge(
+    local trickComboCount = Ramp.updateJumpChallenge(
         playerX,
         BoatJump.isAirborne() or didLand
-    ) then
-        ScoreFlyEffect.start(playerX, playerY - playerImageHeight * currentPlayerScale / 2)
+    )
+
+    if trickComboCount ~= nil then
+        local trickScore = TUNING.RAMP_JUMP_SCORE_REWARD * trickComboCount
+        ScoreFlyEffect.start(
+            playerX,
+            playerY - playerImageHeight * currentPlayerScale / 2,
+            trickScore
+        )
         playSoundOneShot(rampSoundPlayers.success)
     end
 

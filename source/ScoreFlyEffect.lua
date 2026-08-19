@@ -12,6 +12,8 @@ local startY = 0
 local drawX = 0
 local drawY = 0
 local drawScale = 1
+local pendingScoreValue = 0
+local scoreImageCache = {}
 
 ScoreFlyEffect = {}
 
@@ -19,10 +21,17 @@ local function smoothStep(progress)
     return progress * progress * (3 - 2 * progress)
 end
 
-function ScoreFlyEffect.initialize(gameplayTuning)
-    tuning = gameplayTuning
+local function setScoreImage(scoreValue)
+    local cachedImage = scoreImageCache[scoreValue]
 
-    local scoreText = "+" .. tostring(tuning.RAMP_JUMP_SCORE_REWARD)
+    if cachedImage ~= nil then
+        scoreImage = cachedImage.image
+        scoreImageWidth = cachedImage.width
+        scoreImageHeight = cachedImage.height
+        return
+    end
+
+    local scoreText = "+" .. tostring(scoreValue)
     local textWidth, textHeight = pdg.getTextSize(scoreText)
     scoreImageWidth = textWidth + 5
     scoreImageHeight = textHeight + 4
@@ -41,9 +50,22 @@ function ScoreFlyEffect.initialize(gameplayTuning)
     pdg.drawText(scoreText, 2, 2)
     pdg.drawText(scoreText, 3, 2)
     pdg.popContext()
+
+    scoreImageCache[scoreValue] = {
+        image = scoreImage,
+        width = scoreImageWidth,
+        height = scoreImageHeight
+    }
 end
 
-function ScoreFlyEffect.start(x, y)
+function ScoreFlyEffect.initialize(gameplayTuning)
+    tuning = gameplayTuning
+    setScoreImage(tuning.RAMP_JUMP_SCORE_REWARD)
+end
+
+function ScoreFlyEffect.start(x, y, scoreValue)
+    pendingScoreValue = scoreValue
+    setScoreImage(scoreValue)
     active = true
     isShrinking = false
     elapsedMilliseconds = 0
@@ -56,7 +78,7 @@ end
 
 function ScoreFlyEffect.update(deltaMilliseconds)
     if active == false then
-        return false
+        return nil
     end
 
     elapsedMilliseconds += deltaMilliseconds
@@ -72,7 +94,7 @@ function ScoreFlyEffect.update(deltaMilliseconds)
             active = false
         end
 
-        return false
+        return nil
     end
 
     local progress = math.min(
@@ -91,10 +113,12 @@ function ScoreFlyEffect.update(deltaMilliseconds)
         drawY = tuning.RAMP_SCORE_FLY_TARGET_Y
         isShrinking = true
         elapsedMilliseconds = 0
-        return true
+        local reachedScoreValue = pendingScoreValue
+        pendingScoreValue = 0
+        return reachedScoreValue
     end
 
-    return false
+    return nil
 end
 
 function ScoreFlyEffect.draw()
@@ -114,4 +138,5 @@ function ScoreFlyEffect.reset()
     isShrinking = false
     elapsedMilliseconds = 0
     drawScale = 1
+    pendingScoreValue = 0
 end

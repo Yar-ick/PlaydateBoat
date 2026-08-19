@@ -13,7 +13,8 @@ local formationLineX = 0
 local hasEnteredScreen = false
 local screenEntryPending = false
 local previousPlayerRelativeX = nil
-local rewardAwarded = false
+local challengeResolved = false
+local consecutiveTrickCount = 0
 
 Ramp = {}
 
@@ -29,7 +30,7 @@ local function clearChallenge()
     formationRocks = {}
     formationLineX = 0
     previousPlayerRelativeX = nil
-    rewardAwarded = false
+    challengeResolved = false
 end
 
 local function positionOverlapsInteractable(x, y, width, height, excludedObjects)
@@ -328,27 +329,34 @@ function Ramp.markUsed(sprite)
 end
 
 function Ramp.updateJumpChallenge(playerX, isJumpActive)
-    if rampSprite.active == false or rewardAwarded then
-        return false
+    if rampSprite.active == false or challengeResolved then
+        return nil, false
     end
 
     local relativeX = playerX - formationLineX
     local previousRelativeX = previousPlayerRelativeX
     previousPlayerRelativeX = relativeX
 
-    if isJumpActive
-        and previousRelativeX ~= nil
+    local crossedFormationLine = previousRelativeX ~= nil
         and previousRelativeX ~= relativeX
         and (
             (previousRelativeX >= 0 and relativeX <= 0)
             or (previousRelativeX <= 0 and relativeX >= 0)
         )
-    then
-        rewardAwarded = true
-        return true
+
+    if crossedFormationLine == false then
+        return nil, false
     end
 
-    return false
+    challengeResolved = true
+
+    if isJumpActive then
+        consecutiveTrickCount += 1
+        return consecutiveTrickCount, false
+    end
+
+    consecutiveTrickCount = 0
+    return nil, true
 end
 
 function Ramp.reset()
@@ -363,6 +371,7 @@ function Ramp.reset()
     approachReservation.active = false
     updateApproachReservationPosition()
     clearChallenge()
+    consecutiveTrickCount = 0
     hasEnteredScreen = false
     screenEntryPending = false
     resetSpawnCountdown()
