@@ -23,6 +23,7 @@ import "WakeLayer"
 import "Difficulty"
 import "DifficultyMenuUI"
 import "MainMenuHUDAnimation"
+import "MenuCrankNavigation"
 import "Steamboat"
 import "Whirlpool"
 
@@ -1831,6 +1832,7 @@ end
 local function enterMainMenu()
     prepareNewRun()
     BoatGameState = GameState.MAIN_MENU
+    MenuCrankNavigation.reset()
     presentationElapsedMilliseconds = 0
     menuBoatFloatElapsedMilliseconds = 0
     waitingCrankMovement = 0
@@ -2084,18 +2086,24 @@ function playdate.update()
         end
 
         if upgradeMenuState.progress >= 1 and upgradeMenuState.closing == false then
+            local selectionDelta = 0
+
             if pd.buttonJustPressed(pd.kButtonUp) or pd.buttonJustPressed(pd.kButtonLeft) then
-                upgradeMenuState.selectionIndex -= 1
-
-                if upgradeMenuState.selectionIndex < 1 then
-                    upgradeMenuState.selectionIndex = #UpgradeMenuUI.ABILITIES
-                end
-
-                upgradeMenuState.message = nil
-                playSoundOneShot(selectAbilitySoundPlayer)
+                MenuCrankNavigation.reset()
+                selectionDelta = -1
             elseif pd.buttonJustPressed(pd.kButtonDown) or pd.buttonJustPressed(pd.kButtonRight) then
-                upgradeMenuState.selectionIndex = upgradeMenuState.selectionIndex
-                    % #UpgradeMenuUI.ABILITIES + 1
+                MenuCrankNavigation.reset()
+                selectionDelta = 1
+            else
+                selectionDelta = MenuCrankNavigation.getSelectionDelta(
+                    TUNING.MENU_CRANK_TICKS_PER_REVOLUTION
+                )
+            end
+
+            if selectionDelta ~= 0 then
+                upgradeMenuState.selectionIndex = (
+                    upgradeMenuState.selectionIndex - 1 + selectionDelta
+                ) % #UpgradeMenuUI.ABILITIES + 1
                 upgradeMenuState.message = nil
                 playSoundOneShot(selectAbilitySoundPlayer)
             end
@@ -2135,6 +2143,7 @@ function playdate.update()
         if upgradeMenuState.closing and upgradeMenuState.progress <= 0 then
             BoatGameState = GameState.MAIN_MENU
             upgradeMenuState.closing = false
+            MenuCrankNavigation.reset()
             MainMenuHUDAnimation.show()
         end
 
@@ -2187,33 +2196,37 @@ function playdate.update()
             upgradeMenuState.progress = 0
             upgradeMenuState.closing = false
             upgradeMenuState.message = nil
+            MenuCrankNavigation.reset()
             playSoundOneShot(openUpgradeMenuSoundPlayer)
-        elseif MainMenuHUDAnimation.isInteractive()
-            and pd.buttonJustPressed(pd.kButtonLeft)
-        then
-            Difficulty.select(-1)
-            markProgressChanged()
-            saveProgress()
-            playSoundOneShot(selectAbilitySoundPlayer)
-        elseif MainMenuHUDAnimation.isInteractive()
-            and pd.buttonJustPressed(pd.kButtonRight)
-        then
-            Difficulty.select(1)
-            markProgressChanged()
-            saveProgress()
-            playSoundOneShot(selectAbilitySoundPlayer)
-        elseif MainMenuHUDAnimation.isInteractive()
-            and pd.buttonJustPressed(pd.kButtonA)
-        then
-            if Difficulty.isSelectedModeUnlocked() then
-                MainMenuHUDAnimation.hide("start")
+        elseif MainMenuHUDAnimation.isInteractive() then
+            local modeSelectionDelta = 0
+
+            if pd.buttonJustPressed(pd.kButtonLeft) then
+                MenuCrankNavigation.reset()
+                modeSelectionDelta = -1
+            elseif pd.buttonJustPressed(pd.kButtonRight) then
+                MenuCrankNavigation.reset()
+                modeSelectionDelta = 1
             else
-                playSoundOneShot(noUpgradeSoundPlayer)
+                modeSelectionDelta = MenuCrankNavigation.getSelectionDelta(
+                    TUNING.MENU_CRANK_TICKS_PER_REVOLUTION
+                )
             end
-        elseif MainMenuHUDAnimation.isInteractive()
-            and pd.buttonJustPressed(pd.kButtonB)
-        then
-            MainMenuHUDAnimation.hide("upgrade")
+
+            if modeSelectionDelta ~= 0 then
+                Difficulty.select(modeSelectionDelta)
+                markProgressChanged()
+                saveProgress()
+                playSoundOneShot(selectAbilitySoundPlayer)
+            elseif pd.buttonJustPressed(pd.kButtonA) then
+                if Difficulty.isSelectedModeUnlocked() then
+                    MainMenuHUDAnimation.hide("start")
+                else
+                    playSoundOneShot(noUpgradeSoundPlayer)
+                end
+            elseif pd.buttonJustPressed(pd.kButtonB) then
+                MainMenuHUDAnimation.hide("upgrade")
+            end
         end
 
         return
