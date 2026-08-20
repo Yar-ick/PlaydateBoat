@@ -7,13 +7,14 @@ local images = {
     bButton = pdg.image.new("images/B_Button"),
     coin = pdg.imagetable.new("images/Coin"),
     dash = pdg.image.new("images/Dash"),
+    horn = pdg.image.new("images/Horn"),
     shield = pdg.image.new("images/Shield"),
     shrink = pdg.image.new("images/Srink"),
+    growth = pdg.image.new("images/Growth"),
     speedReduction = pdg.image.new("images/SpeedReductionNoFrame")
 }
 
-UpgradeMenuUI = {
-    ABILITIES = {
+local regularAbilities = {
         {
             type = "dash",
             title = "DASH",
@@ -43,7 +44,44 @@ UpgradeMenuUI = {
             image = images.speedReduction,
             imageYOffset = 1
         }
+    }
+
+local otherSideAbilities = {
+    {
+        type = "horn",
+        title = "HORN",
+        description = "Warn small boats to move away.",
+        upgradeDescription = "Upgrade: reduce cooldown.",
+        image = images.horn
     },
+    {
+        type = "shield",
+        title = "SHIELD",
+        description = "Survive a small boat collision.",
+        upgradeDescription = "Upgrade: store more protection.",
+        image = images.shield
+    },
+    {
+        type = "growth",
+        title = "GROWTH",
+        description = "Grow to clear more river rocks.",
+        upgradeDescription = "Upgrade: extend duration.",
+        image = images.growth,
+        imageYOffset = 1
+    },
+    {
+        type = "speedReduction",
+        title = "SLOWDOWN",
+        description = "Slow rocks and water.",
+        upgradeDescription = "Upgrade: stronger slowdown.",
+        image = images.speedReduction,
+        imageYOffset = 1
+    }
+}
+
+UpgradeMenuUI = {
+    REGULAR_ABILITIES = regularAbilities,
+    OTHER_SIDE_ABILITIES = otherSideAbilities,
     coinFrame = 1,
     coinElapsedMilliseconds = 0,
     upgradeBlinkElapsedMilliseconds = 0,
@@ -56,6 +94,10 @@ UpgradeMenuUI = {
         soundPending = false
     }
 }
+
+function UpgradeMenuUI.getAbilities(isOtherSide)
+    return isOtherSide and otherSideAbilities or regularAbilities
+end
 
 local upgradeNodeCenters <const> = { 125, 205, 285, 365 }
 
@@ -343,15 +385,16 @@ function UpgradeMenuUI.update(elapsedMilliseconds)
     return shouldPlayUpgradeSound
 end
 
-function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tuning)
-    local ability = UpgradeMenuUI.ABILITIES[selectionIndex]
+function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tuning, isOtherSide)
+    local abilities = UpgradeMenuUI.getAbilities(isOtherSide)
+    local ability = abilities[selectionIndex]
     local level = levels[ability.type]
 
     local previousColor = pdg.getColor()
     drawWorkshopBackground(yOffset)
 
-    for index = 1, #UpgradeMenuUI.ABILITIES do
-        local selectorAbility = UpgradeMenuUI.ABILITIES[index]
+    for index = 1, #abilities do
+        local selectorAbility = abilities[index]
         local frameX = 36
         local frameY = yOffset + 27 + (index - 1) * 40
 
@@ -385,10 +428,16 @@ function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tun
         local actionLabel
 
         if level == tuning.LOCKED_ABILITY_LEVEL then
-            cost = tuning.ABILITY_PURCHASE_COSTS[ability.type]
+            local purchaseCosts = isOtherSide
+                and tuning.OTHER_SIDE_ABILITY_PURCHASE_COSTS
+                or tuning.ABILITY_PURCHASE_COSTS
+            cost = purchaseCosts[ability.type]
             actionLabel = "Buy"
         else
-            cost = tuning.ABILITY_UPGRADE_COSTS[ability.type][level + 1]
+            local upgradeCosts = isOtherSide
+                and tuning.OTHER_SIDE_ABILITY_UPGRADE_COSTS
+                or tuning.ABILITY_UPGRADE_COSTS
+            cost = upgradeCosts[ability.type][level + 1]
             actionLabel = "Upgrade"
         end
 

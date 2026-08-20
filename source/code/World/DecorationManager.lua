@@ -129,6 +129,15 @@ function DecorationManager:update(elapsedMilliseconds, worldDisplacement, curren
     end
 end
 
+function DecorationManager:clearDecoration(decoration)
+    if decoration == nil or decoration.active == false then
+        return false
+    end
+
+    despawnDecoration(decoration)
+    return true
+end
+
 function DecorationManager:reset()
     self.spawnDisabled = false
 

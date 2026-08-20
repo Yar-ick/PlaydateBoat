@@ -83,7 +83,8 @@ function DifficultyMenuUI.draw(mode, modeIndex, modeCount, highScore, isUnlocked
     drawHighScore(centerX, y + 14, highScore)
 
     pdg.drawLine(x + 8, y + 48, x + width - 8, y + 48)
-    pdg.drawTextAligned(mode.TITLE, centerX, y + 58, kTextAlignment.center)
+    local title = isUnlocked and mode.TITLE or mode.LOCKED_TITLE or mode.TITLE
+    pdg.drawTextAligned(title, centerX, y + 58, kTextAlignment.center)
 
     if isUnlocked then
         for lineIndex = 1, #mode.DESCRIPTION_LINES do
@@ -91,6 +92,17 @@ function DifficultyMenuUI.draw(mode, modeIndex, modeCount, highScore, isUnlocked
                 mode.DESCRIPTION_LINES[lineIndex],
                 centerX,
                 y + 88 + (lineIndex - 1) * 18,
+                kTextAlignment.center
+            )
+        end
+    elseif mode.LOCKED_DESCRIPTION_LINES ~= nil then
+        drawLock(centerX, y + 78)
+
+        for lineIndex = 1, #mode.LOCKED_DESCRIPTION_LINES do
+            pdg.drawTextAligned(
+                mode.LOCKED_DESCRIPTION_LINES[lineIndex],
+                centerX,
+                y + 112 + (lineIndex - 1) * 18,
                 kTextAlignment.center
             )
         end

@@ -11,9 +11,12 @@ import "code/Collectables/Collectable"
 import "code/Collectables/CoinCollectable"
 import "code/Collectables/ShieldCollectable"
 import "code/Collectables/ShrinkCollectable"
+import "code/Collectables/GrowthCollectable"
 import "code/Collectables/SpeedReductionCollectable"
 import "code/Gameplay/BoatJump"
+import "code/Gameplay/AbilityProgression"
 import "code/Gameplay/Difficulty"
+import "code/Gameplay/OtherSide"
 import "code/Obstacles/Ramp"
 import "code/Obstacles/Steamboat"
 import "code/Obstacles/Whirlpool"
@@ -33,6 +36,11 @@ local pd <const> = playdate
 local pdg <const> = playdate.graphics
 local pds <const> = playdate.sound
 local TUNING <const> = GameplayTuning
+
+local function isOtherSideMode()
+    return Difficulty.getSelectedMode().IS_OTHER_SIDE == true
+        and Difficulty.isSelectedModeUnlocked()
+end
 
 function math.clamp(val, lower, upper)
     return math.max(lower, math.min(upper, val))
@@ -59,7 +67,11 @@ local GameState = {
 local BoatGameState = GameState.MAIN_MENU
 local lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
 
-local playerImagetable = pdg.imagetable.new("images/Boat")
+local playerImagetables = {
+    regular = pdg.imagetable.new("images/Boat"),
+    otherSide = pdg.imagetable.new("images/Steamboat")
+}
+local playerImagetable = playerImagetables.regular
 local playerImagetableSize = playerImagetable:getLength()
 local explosionImagetable = pdg.imagetable.new("images/Explosion")
 local rockExplosionImagetable = pdg.imagetable.new("images/RockExplosion")
@@ -74,6 +86,7 @@ local coinImagetable = pdg.imagetable.new("images/Coin")
 local starImage = pdg.image.new("images/Star")
 local shieldCollectableImage = pdg.image.new("images/ShieldNoFrame")
 local shrinkCollectableImage = pdg.image.new("images/SrinkNoFrame")
+local growthCollectableImage = pdg.image.new("images/Growth")
 local speedReductionCollectableImage = pdg.image.new("images/SpeedReductionNoFrame")
 
 local selectAbilitySoundPlayer = pds.sampleplayer.new("sounds/SelectAbility")
@@ -109,7 +122,8 @@ local waterFlowSoundPlayer = pds.sampleplayer.new("sounds/WaterFlow")
 local waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
 local musicPlayers = {
     menu = pds.fileplayer.new("sounds/The Forgotten Grove"),
-    gameplay = pds.fileplayer.new("sounds/Banners in the Wind")
+    gameplay = pds.fileplayer.new("sounds/Banners in the Wind"),
+    otherSide = pds.fileplayer.new("sounds/Hymn of Valor")
 }
 local gameMusicRate = TUNING.MUSIC_NORMAL_RATE
 local sfxChannel = pds.channel.new()
@@ -142,6 +156,7 @@ sfxChannel:addSource(boatEngineSoundPlayer)
 sfxChannel:addSource(waterFlowSoundPlayer)
 musicChannel:addSource(musicPlayers.menu)
 musicChannel:addSource(musicPlayers.gameplay)
+musicChannel:addSource(musicPlayers.otherSide)
 
 for i = 1, 4 do
     rockExplosionSoundPlayers[i] = pds.sampleplayer.new("sounds/RockExplosion")
@@ -166,8 +181,12 @@ end
 local function startBoatEngineSound()
     if boatEngineSoundPlayer:isPlaying() == false then
         boatEngineSoundPlayer:setOffset(0)
-        boatEngineSoundPlayer:setRate(boatEngineSoundRate)
-        boatEngineSoundPlayer:setVolume(boatEngineSoundVolume)
+        boatEngineSoundPlayer:setRate(
+            isOtherSideMode() and TUNING.OTHER_SIDE_ENGINE_RATE or boatEngineSoundRate
+        )
+        boatEngineSoundPlayer:setVolume(
+            isOtherSideMode() and TUNING.OTHER_SIDE_ENGINE_VOLUME or boatEngineSoundVolume
+        )
         boatEngineSoundPlayer:play(0)
     end
 end
@@ -179,6 +198,23 @@ local function stopBoatEngineSound()
 end
 
 local function updateBoatEngineSound(isFast, isShrunk, currentWorldVelocity)
+    if isOtherSideMode() then
+        local targetRate = TUNING.OTHER_SIDE_ENGINE_RATE
+
+        if isFast then
+            targetRate *= TUNING.OTHER_SIDE_ENGINE_FAST_RATE_MULTIPLIER
+        end
+
+        boatEngineSoundRate +=
+            (targetRate - boatEngineSoundRate) * TUNING.ENGINE_SOUND_INTERPOLATION_SPEED
+        boatEngineSoundVolume +=
+            (TUNING.OTHER_SIDE_ENGINE_VOLUME - boatEngineSoundVolume)
+                * TUNING.ENGINE_SOUND_INTERPOLATION_SPEED
+        boatEngineSoundPlayer:setRate(boatEngineSoundRate)
+        boatEngineSoundPlayer:setVolume(boatEngineSoundVolume)
+        return
+    end
+
     local velocityRange = Difficulty.getMaxWorldVelocity() - TUNING.INITIAL_WORLD_VELOCITY
     local velocityProgress = 0
     if velocityRange > 0 then
@@ -243,6 +279,10 @@ local function startMenuMusic()
         musicPlayers.gameplay:stop()
     end
 
+    if musicPlayers.otherSide:isPlaying() then
+        musicPlayers.otherSide:stop()
+    end
+
     if musicPlayers.menu:isPlaying() == false then
         musicPlayers.menu:setRate(TUNING.MUSIC_NORMAL_RATE)
         musicPlayers.menu:setVolume(TUNING.MUSIC_VOLUME)
@@ -255,10 +295,17 @@ local function startGameplayMusic()
         musicPlayers.menu:stop()
     end
 
-    if musicPlayers.gameplay:isPlaying() == false then
-        musicPlayers.gameplay:setRate(gameMusicRate)
-        musicPlayers.gameplay:setVolume(TUNING.MUSIC_VOLUME)
-        musicPlayers.gameplay:play(0)
+    local gameplayMusic = isOtherSideMode() and musicPlayers.otherSide or musicPlayers.gameplay
+    local inactiveMusic = isOtherSideMode() and musicPlayers.gameplay or musicPlayers.otherSide
+
+    if inactiveMusic:isPlaying() then
+        inactiveMusic:stop()
+    end
+
+    if gameplayMusic:isPlaying() == false then
+        gameplayMusic:setRate(gameMusicRate)
+        gameplayMusic:setVolume(TUNING.MUSIC_VOLUME)
+        gameplayMusic:play(0)
     end
 end
 
@@ -269,6 +316,10 @@ local function pauseGameMusic()
 
     if musicPlayers.gameplay:isPlaying() then
         musicPlayers.gameplay:pause()
+    end
+
+    if musicPlayers.otherSide:isPlaying() then
+        musicPlayers.otherSide:pause()
     end
 end
 
@@ -285,6 +336,7 @@ local function updateGameMusic(currentWorldVelocity)
     gameMusicRate +=
         (targetRate - gameMusicRate) * TUNING.MUSIC_RATE_INTERPOLATION_SPEED
     musicPlayers.gameplay:setRate(gameMusicRate)
+    musicPlayers.otherSide:setRate(gameMusicRate)
 end
 
 local function startGameplayLoopSounds()
@@ -300,6 +352,7 @@ local function stopGameplayLoopSounds()
     stopWaterFlowSound()
     pauseGameMusic()
     Steamboat.stopSounds()
+    OtherSide.stopSounds()
     Whirlpool.stopSounds()
 end
 
@@ -314,48 +367,21 @@ if type(savedProgress) ~= "table" then
     savedProgress = {}
 end
 
+AbilityProgression.initialize(savedProgress, TUNING)
+Difficulty.setSecretModeUnlocked(AbilityProgression.areRegularAbilitiesMaxed())
 Difficulty.initialize(savedProgress, TUNING)
 
-local savedUpgrades = savedProgress.upgrades
-if type(savedUpgrades) ~= "table" then
-    savedUpgrades = {}
-end
-
-local function loadAbilityUpgradeLevel(savedLevel)
-    local numericLevel = tonumber(savedLevel)
-
-    if numericLevel == nil then
-        return TUNING.LOCKED_ABILITY_LEVEL
-    end
-
-    return math.clamp(
-        math.floor(numericLevel),
-        TUNING.LOCKED_ABILITY_LEVEL,
-        TUNING.MAX_ABILITY_UPGRADE_LEVEL
-    )
-end
-
-local playerCoins = math.max(0, math.floor(tonumber(savedProgress.coins) or 0))
-local shieldUpgradeLevel = loadAbilityUpgradeLevel(savedUpgrades.shield)
-local shrinkUpgradeLevel = loadAbilityUpgradeLevel(savedUpgrades.shrink)
-local speedReductionUpgradeLevel = loadAbilityUpgradeLevel(savedUpgrades.speedReduction)
-local dashUpgradeLevel = loadAbilityUpgradeLevel(savedUpgrades.dash)
-
 local function isAbilityPurchased(abilityType)
-    if abilityType == "shield" then
-        return shieldUpgradeLevel > TUNING.LOCKED_ABILITY_LEVEL
-    elseif abilityType == "shrink" then
-        return shrinkUpgradeLevel > TUNING.LOCKED_ABILITY_LEVEL
-    elseif abilityType == "speedReduction" then
-        return speedReductionUpgradeLevel > TUNING.LOCKED_ABILITY_LEVEL
-    end
-
-    return dashUpgradeLevel > TUNING.LOCKED_ABILITY_LEVEL
+    return AbilityProgression.isPurchased(abilityType, isOtherSideMode())
 end
 
 local function getDashCooldownDuration()
-    local level = math.max(0, dashUpgradeLevel)
-    return TUNING.DASH_COOLDOWN_MS_BY_LEVEL[level + 1]
+    local abilityType = isOtherSideMode() and "horn" or "dash"
+    local level = math.max(0, AbilityProgression.getLevel(abilityType, isOtherSideMode()))
+    local durations = isOtherSideMode()
+        and TUNING.HORN_COOLDOWN_MS_BY_LEVEL
+        or TUNING.DASH_COOLDOWN_MS_BY_LEVEL
+    return durations[level + 1]
 end
 local AUDIO_MODE_OPTIONS <const> = { "SFX + Music", "SFX", "Music" }
 local selectedAudioMode = savedProgress.audioMode
@@ -386,17 +412,14 @@ local function saveProgress()
         return true
     end
 
+    local abilityProgress = AbilityProgression.getSaveData()
     local progress = {
-        coins = playerCoins,
+        coins = abilityProgress.coins,
         audioMode = selectedAudioMode,
         uiMode = selectedUiMode,
         difficulty = Difficulty.getSaveData(),
-        upgrades = {
-            shield = shieldUpgradeLevel,
-            shrink = shrinkUpgradeLevel,
-            speedReduction = speedReductionUpgradeLevel,
-            dash = dashUpgradeLevel
-        }
+        upgrades = abilityProgress.upgrades,
+        otherSide = abilityProgress.otherSide
     }
 
     -- A read-only Simulator SDK folder must not be able to terminate gameplay.
@@ -468,6 +491,12 @@ local waitingCrankMovement = 0
 local startRotationAngle = 180
 local launchVisualAngle = 180
 local menuBoatFloatElapsedMilliseconds = 0
+local menuVesselSwap = {
+    displayedOtherSide = false,
+    targetOtherSide = false,
+    elapsedMilliseconds = TUNING.MAIN_MENU_VESSEL_SWAP_DURATION_MS,
+    active = false
+}
 local launchStartX = TUNING.MAIN_MENU_BOAT_X
 local launchStartY = TUNING.MAIN_MENU_BOAT_Y
 GameplayProgress = { suspended = true }
@@ -476,6 +505,7 @@ local scoreTimer = pd.timer.new(1000, function()
     if GameplayProgress.suspended == false
         and BoatGameState == GameState.ALIVE
         and pd.isCrankDocked() == false
+        and isOtherSideMode() == false
     then
         playerScore += playerScoreStep
     end
@@ -650,12 +680,53 @@ playerSprite:setCollideRect(playerCollisionX, playerCollisionY, playerCollisionW
 playerSprite:moveTo(playerStartX, playerStartY)
 playerSprite:add()
 
+local function applyPlayerVessel(useOtherSideVessel)
+    if useOtherSideVessel then
+        playerImagetable = playerImagetables.otherSide
+        playerCollisionX = TUNING.OTHER_SIDE_COLLISION_X
+        playerCollisionY = TUNING.OTHER_SIDE_COLLISION_Y
+        playerCollisionWidth = TUNING.OTHER_SIDE_COLLISION_WIDTH
+        playerCollisionHeight = TUNING.OTHER_SIDE_COLLISION_HEIGHT
+    else
+        playerImagetable = playerImagetables.regular
+    end
+
+    playerImagetableSize = playerImagetable:getLength()
+    playerImageWidth, playerImageHeight = playerImagetable:getImage(1):getSize()
+
+    if useOtherSideVessel == false then
+        playerCollisionX = playerImageWidth / 3
+        playerCollisionY = playerImageHeight / 2
+        playerCollisionWidth = playerImageWidth / 3
+        playerCollisionHeight = playerImageHeight / 5
+    end
+
+    local menuFrameIndex = useOtherSideVessel
+        and TUNING.OTHER_SIDE_MAIN_MENU_BOAT_FRAME_INDEX
+        or TUNING.MAIN_MENU_BOAT_FRAME_INDEX
+    playerSprite:setImage(playerImagetable:getImage(menuFrameIndex))
+    playerSprite:setCollideRect(
+        playerCollisionX,
+        playerCollisionY,
+        playerCollisionWidth,
+        playerCollisionHeight
+    )
+end
+
 local collectablesByType = {}
 local collectableSpawnRemainingMilliseconds = {}
-local collectableTypes <const> = { "coin", "shield", "shrink", "speedReduction" }
+local collectableTypes <const> = { "coin", "shield", "shrink", "growth", "speedReduction" }
 
 local function isCollectableAvailable(collectableType)
-    return collectableType == "coin" or isAbilityPurchased(collectableType)
+    if collectableType == "coin" then
+        return true
+    end
+
+    if isOtherSideMode() then
+        return collectableType ~= "shrink" and isAbilityPurchased(collectableType)
+    end
+
+    return collectableType ~= "growth" and isAbilityPurchased(collectableType)
 end
 
 local function canSpawnCollectable(collectableType)
@@ -668,7 +739,7 @@ local function canSpawnCollectable(collectableType)
 end
 
 local function onCoinCollected()
-    playerCoins += Difficulty.getCoinReward()
+    AbilityProgression.addCoins(Difficulty.getCoinReward(), isOtherSideMode())
     playSoundOneShot(coinPickupSoundPlayer)
     markProgressChanged()
     saveProgress()
@@ -681,7 +752,10 @@ local function onShieldCollected()
 
     shieldHitsRemaining = math.min(
         TUNING.MAX_SHIELD_HITS,
-        shieldHitsRemaining + TUNING.SHIELD_HITS_BY_LEVEL[shieldUpgradeLevel + 1]
+        shieldHitsRemaining
+            + TUNING.SHIELD_HITS_BY_LEVEL[
+                AbilityProgression.getLevel("shield", isOtherSideMode()) + 1
+            ]
     )
     playSoundOneShot(shieldSoundPlayer)
 end
@@ -691,8 +765,25 @@ local function onShrinkCollected()
         return
     end
 
-    shrinkDurationMilliseconds = TUNING.SHRINK_DURATION_MS_BY_LEVEL[shrinkUpgradeLevel + 1]
+    shrinkDurationMilliseconds = TUNING.SHRINK_DURATION_MS_BY_LEVEL[
+        AbilityProgression.getLevel("shrink", false) + 1
+    ]
     targetPlayerScale = TUNING.SHRUNK_PLAYER_SCALE
+    shrinkRemainingMilliseconds = shrinkDurationMilliseconds
+    shrinkUiProgress = 0
+    shrinkUiIsFilling = true
+    playSoundOneShot(shrinkSoundPlayer)
+end
+
+local function onGrowthCollected()
+    if isAbilityPurchased("growth") == false then
+        return
+    end
+
+    shrinkDurationMilliseconds = TUNING.GROWTH_DURATION_MS_BY_LEVEL[
+        AbilityProgression.getLevel("growth", true) + 1
+    ]
+    targetPlayerScale = TUNING.OTHER_SIDE_GROWTH_SCALE
     shrinkRemainingMilliseconds = shrinkDurationMilliseconds
     shrinkUiProgress = 0
     shrinkUiIsFilling = true
@@ -704,7 +795,9 @@ local function onSpeedReductionCollected()
         return
     end
 
-    local reduction = TUNING.SPEED_REDUCTION_BY_LEVEL[speedReductionUpgradeLevel + 1]
+    local reduction = TUNING.SPEED_REDUCTION_BY_LEVEL[
+        AbilityProgression.getLevel("speedReduction", isOtherSideMode()) + 1
+    ]
     worldVelocity = math.max(TUNING.MIN_WORLD_VELOCITY, worldVelocity - reduction)
     playSoundOneShot(speedReductionSoundPlayer)
 end
@@ -712,6 +805,7 @@ end
 collectablesByType.coin = CoinCollectable(coinImagetable, onCoinCollected)
 collectablesByType.shield = ShieldCollectable(shieldCollectableImage, onShieldCollected)
 collectablesByType.shrink = ShrinkCollectable(shrinkCollectableImage, onShrinkCollected)
+collectablesByType.growth = GrowthCollectable(growthCollectableImage, onGrowthCollected)
 collectablesByType.speedReduction =
     SpeedReductionCollectable(speedReductionCollectableImage, onSpeedReductionCollected)
 
@@ -904,6 +998,25 @@ local function startDash(crankPositionForVelocity)
     return true
 end
 
+local function startHorn()
+    if isOtherSideMode() == false
+        or isAbilityPurchased("horn") == false
+        or dashCooldownRemainingMilliseconds > 0
+    then
+        return false
+    end
+
+    if OtherSide.soundHorn(playerX, playerY) == false then
+        return false
+    end
+
+    dashCooldownDurationMilliseconds = getDashCooldownDuration()
+    dashCooldownRemainingMilliseconds = dashCooldownDurationMilliseconds
+    dashUiProgress = 1
+    dashUiIsDraining = true
+    return true
+end
+
 local function updateBButton(elapsedMilliseconds, crankPositionForVelocity)
     if pd.buttonJustPressed(pd.kButtonB) then
         bButtonHeldMilliseconds = 0
@@ -924,7 +1037,11 @@ local function updateBButton(elapsedMilliseconds, crankPositionForVelocity)
 
     if pd.buttonJustReleased(pd.kButtonB) then
         if bButtonIsBeingHeld and bButtonHoldModeActivated == false then
-            startDash(crankPositionForVelocity)
+            if isOtherSideMode() then
+                startHorn()
+            else
+                startDash(crankPositionForVelocity)
+            end
         end
 
         bButtonHeldMilliseconds = 0
@@ -956,65 +1073,30 @@ local upgradeMenuState = {
     selectionIndex = 1,
     message = nil,
     messageRemainingMilliseconds = 0,
-    pendingUpgradeSoundPlayer = nil
+    pendingUpgradeSoundPlayer = nil,
+    isOtherSide = false
 }
 
-local function getAbilityUpgradeLevel(abilityType)
-    if abilityType == "shield" then
-        return shieldUpgradeLevel
-    elseif abilityType == "shrink" then
-        return shrinkUpgradeLevel
-    elseif abilityType == "speedReduction" then
-        return speedReductionUpgradeLevel
-    end
-
-    return dashUpgradeLevel
-end
-
-local function setAbilityUpgradeLevel(abilityType, level)
-    if abilityType == "shield" then
-        shieldUpgradeLevel = level
-    elseif abilityType == "shrink" then
-        shrinkUpgradeLevel = level
-    elseif abilityType == "speedReduction" then
-        speedReductionUpgradeLevel = level
-    else
-        dashUpgradeLevel = level
-    end
-end
-
 local function purchaseAbilityUpgrade(abilityType)
-    local level = getAbilityUpgradeLevel(abilityType)
+    local didPurchase, nextLevel, isPurchase = AbilityProgression.tryPurchase(
+        abilityType,
+        upgradeMenuState.isOtherSide
+    )
 
-    if level >= TUNING.MAX_ABILITY_UPGRADE_LEVEL then
+    if didPurchase == false then
         playSoundOneShot(noUpgradeSoundPlayer)
         return false, nil
     end
 
-    local isPurchase = level == TUNING.LOCKED_ABILITY_LEVEL
-    local cost
-    local nextLevel
-
-    if isPurchase then
-        cost = TUNING.ABILITY_PURCHASE_COSTS[abilityType]
-        nextLevel = 0
-    else
-        cost = TUNING.ABILITY_UPGRADE_COSTS[abilityType][level + 1]
-        nextLevel = level + 1
-    end
-
-    if playerCoins < cost then
-        playSoundOneShot(noUpgradeSoundPlayer)
-        return false, nil
-    end
-
-    playerCoins -= cost
-    setAbilityUpgradeLevel(abilityType, nextLevel)
     local shouldDelayUpgradeSound = UpgradeMenuUI.playUpgradeEffect(nextLevel)
 
-    if abilityType == "dash" and dashCooldownRemainingMilliseconds <= 0 then
+    if (abilityType == "dash" or abilityType == "horn")
+        and dashCooldownRemainingMilliseconds <= 0
+    then
         dashCooldownDurationMilliseconds = getDashCooldownDuration()
     end
+
+    Difficulty.setSecretModeUnlocked(AbilityProgression.areRegularAbilitiesMaxed())
 
     markProgressChanged()
     saveProgress()
@@ -1055,58 +1137,7 @@ local function updateExplosion()
     explosionAnimation:draw(explosionX - explosionImageWidth / 2, explosionY - explosionImageHeight / 2)
 end
 
--- Particle emitter offsets for each sprite direction (indexed by playerSpriteIndexFromAngle)
--- Each entry is {offsetX, offsetY} relative to boat center
-local playerParticleEmitterOffsets = {
-    {x = 0, y = 25},    -- 1 frame
-    {x = -5, y = 26},   -- 2 frame
-    {x = -9, y = 26},   -- 3 frame
-    {x = -13, y = 26},  -- 4 frame
-    {x = -17, y = 26},  -- 5 frame
-    {x = -19, y = 24},  -- 6 frame
-    {x = -21, y = 24},  -- 7 frame
-    {x = -24, y = 23},  -- 8 frame
-    {x = -24, y = 22},  -- 9 frame
-    {x = -26, y = 20},  -- 10 frame
-    {x = -28, y = 17},  -- 11 frame
-    {x = -29, y = 14},  -- 12 frame
-    {x = -30, y = 11},  -- 13 frame
-    {x = -31, y = 8},   -- 14 frame
-    {x = -30, y = 3},   -- 15 frame
-    {x = -29, y = -1},  -- 16 frame
-    {x = -27, y = -5},  -- 17 frame
-    {x = -25, y = -7},  -- 18 frame
-    {x = -23, y = -7},  -- 19 frame
-    {x = -22, y = -9},  -- 20 frame
-    {x = -19, y = -10}, -- 21 frame
-    {x = -16, y = -11}, -- 22 frame
-    {x = -11, y = -14}, -- 23 frame
-    {x = -6, y = -16},  -- 24 frame
-    {x = -2, y = -15},  -- 25 frame
-    {x = 3, y = -15},   -- 26 frame
-    {x = 7, y = -15},   -- 27 frame
-    {x = 10, y = -14},  -- 28 frame
-    {x = 13, y = -13},  -- 29 frame
-    {x = 15, y = -12},  -- 30 frame
-    {x = 17, y = -8},   -- 31 frame
-    {x = 22, y = -6},   -- 32 frame
-    {x = 24, y = -5},   -- 33 frame
-    {x = 26, y = -1},   -- 34 frame
-    {x = 28, y = 3},    -- 35 frame
-    {x = 29, y = 6},    -- 36 frame
-    {x = 29, y = 9},    -- 37 frame
-    {x = 28, y = 13},   -- 38 frame
-    {x = 27, y = 16},   -- 39 frame
-    {x = 24, y = 19},   -- 40 frame
-    {x = 22, y = 21},   -- 41 frame
-    {x = 21, y = 23},   -- 42 frame
-    {x = 19, y = 24},   -- 43 frame
-    {x = 17, y = 25},   -- 44 frame
-    {x = 15, y = 26},   -- 45 frame
-    {x = 12, y = 28},   -- 46 frame
-    {x = 8, y = 29},    -- 47 frame
-    {x = 4, y = 30},    -- 48 frame
-}
+local playerParticleEmitterOffsets = TUNING.PLAYER_WAKE_EMITTER_OFFSETS
 
 local wakeLinePool = {}
 local wakeLineCursor = 1
@@ -1125,7 +1156,15 @@ local function clearWakeLines()
     WakeLayer.markDirty()
 end
 
-local function spawnWakeLine(engineX, engineY, wakeAngle, speedMultiplier, angleSpread)
+local function spawnWakeLine(
+    engineX,
+    engineY,
+    wakeAngle,
+    speedMultiplier,
+    angleSpread,
+    useSteamboatDimensions,
+    lengthMultiplier
+)
     local line = wakeLinePool[wakeLineCursor]
 
     wakeLineCursor += 1
@@ -1137,6 +1176,33 @@ local function spawnWakeLine(engineX, engineY, wakeAngle, speedMultiplier, angle
     local perpendicularAngle = angle + 90
     local sideOffset = math.random(-3, 3)
     local speed = math.random(12, 20) / 10 * speedMultiplier
+    local length = math.random(8, 15)
+    local width = math.random(1, 2)
+    local lifetime = math.random(10, 16)
+
+    if useSteamboatDimensions then
+        sideOffset = math.random(
+            -TUNING.STEAMBOAT_WAKE_SIDE_OFFSET,
+            TUNING.STEAMBOAT_WAKE_SIDE_OFFSET
+        )
+        speed = math.random(
+            TUNING.STEAMBOAT_WAKE_MINIMUM_SPEED_TENTHS,
+            TUNING.STEAMBOAT_WAKE_MAXIMUM_SPEED_TENTHS
+        ) / 10 * speedMultiplier
+        length = math.random(
+            TUNING.STEAMBOAT_WAKE_MINIMUM_LENGTH,
+            TUNING.STEAMBOAT_WAKE_MAXIMUM_LENGTH
+        )
+        width = math.random(
+            TUNING.STEAMBOAT_WAKE_MINIMUM_WIDTH,
+            TUNING.STEAMBOAT_WAKE_MAXIMUM_WIDTH
+        )
+        lifetime = math.random(
+            TUNING.STEAMBOAT_WAKE_MINIMUM_LIFETIME_FRAMES,
+            TUNING.STEAMBOAT_WAKE_MAXIMUM_LIFETIME_FRAMES
+        )
+        length = math.floor(length * (lengthMultiplier or 1) + 0.5)
+    end
 
     line.active = true
     line.x = engineX + math.sin(math.rad(perpendicularAngle)) * sideOffset
@@ -1144,10 +1210,10 @@ local function spawnWakeLine(engineX, engineY, wakeAngle, speedMultiplier, angle
     line.dx = math.sin(math.rad(angle))
     line.dy = -math.cos(math.rad(angle))
     line.speed = speed
-    line.length = math.random(8, 15)
+    line.length = length
     line.age = 0
-    line.lifetime = math.random(10, 16)
-    line.width = math.random(1, 2)
+    line.lifetime = lifetime
+    line.width = width
 end
 
 local function updateWakeLines(
@@ -1176,6 +1242,44 @@ local function updateWakeLines(
     WakeLayer.markDirty()
 
     if allowSpawning == false then
+        return
+    end
+
+    if isOtherSideMode() then
+        wakeLineSpawnCounter += 1
+
+        if wakeLineSpawnCounter >= TUNING.OTHER_SIDE_WAKE_SPAWN_INTERVAL_FRAMES then
+            local wakeAngle = math.normalizeAngle(currentVelocityAngle + 180)
+            local engineDistance = TUNING.OTHER_SIDE_WAKE_ENGINE_DISTANCE * currentPlayerScale
+            local engineX = playerX
+                + math.sin(math.rad(wakeAngle)) * engineDistance
+            local engineY = playerY
+                - math.cos(math.rad(wakeAngle)) * engineDistance
+            local spawnCount = TUNING.OTHER_SIDE_WAKE_NORMAL_SPAWN_COUNT
+            local speedMultiplier = TUNING.OTHER_SIDE_WAKE_NORMAL_SPEED_MULTIPLIER
+            local lengthMultiplier = 1
+
+            if playerSpeedMode == 2 or isDashing then
+                spawnCount = TUNING.OTHER_SIDE_WAKE_FAST_SPAWN_COUNT
+                speedMultiplier = TUNING.OTHER_SIDE_WAKE_FAST_SPEED_MULTIPLIER
+                lengthMultiplier = TUNING.OTHER_SIDE_WAKE_FAST_LENGTH_MULTIPLIER
+            end
+
+            for _ = 1, spawnCount do
+                spawnWakeLine(
+                    engineX,
+                    engineY,
+                    wakeAngle,
+                    speedMultiplier,
+                    TUNING.OTHER_SIDE_WAKE_ANGLE_SPREAD_DEGREES,
+                    true,
+                    lengthMultiplier
+                )
+            end
+
+            wakeLineSpawnCounter = 0
+        end
+
         return
     end
 
@@ -1251,6 +1355,7 @@ local function drawWakeLines()
     end
 
     Steamboat.drawWakeLines()
+    OtherSide.drawWakeLines()
     Whirlpool.draw()
     LandingSplash.draw()
     FlightShadow.draw()
@@ -1422,12 +1527,12 @@ local function drawDiegeticAbilities(currentVelocityAngle)
 
     pdg.setColor(pdg.kColorWhite)
 
-    if isAbilityPurchased("dash") then
+    if isAbilityPurchased(isOtherSideMode() and "horn" or "dash") then
         -- Solid white backing plates prevent the water texture from crossing Dash arrows.
         drawDashChargeChevrons(currentVelocityAngle, true)
     end
 
-    if isAbilityPurchased("shrink") then
+    if isAbilityPurchased(isOtherSideMode() and "growth" or "shrink") then
         -- The wider white line keeps the curved Shrink bar readable over the world.
         pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_BACKGROUND_LINE_WIDTH)
         drawShrinkProgressArc(currentVelocityAngle)
@@ -1440,12 +1545,12 @@ local function drawDiegeticAbilities(currentVelocityAngle)
 
     pdg.setColor(pdg.kColorBlack)
 
-    if isAbilityPurchased("dash") then
+    if isAbilityPurchased(isOtherSideMode() and "horn" or "dash") then
         pdg.setLineWidth(TUNING.DIEGETIC_DASH_LINE_WIDTH)
         drawDashChargeChevrons(currentVelocityAngle, false)
     end
 
-    if isAbilityPurchased("shrink") then
+    if isAbilityPurchased(isOtherSideMode() and "growth" or "shrink") then
         pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_LINE_WIDTH)
         drawShrinkProgressArc(currentVelocityAngle)
     end
@@ -1569,10 +1674,11 @@ local function drawHud()
             dashCooldownRemainingMilliseconds <= 0,
             shrinkUiProgress,
             shieldHitsRemaining,
-            isAbilityPurchased("dash"),
-            isAbilityPurchased("shrink"),
+            isAbilityPurchased(isOtherSideMode() and "horn" or "dash"),
+            isAbilityPurchased(isOtherSideMode() and "growth" or "shrink"),
             TUNING,
-            leftHudOffsetX
+            leftHudOffsetX,
+            isOtherSideMode()
         )
     end
 
@@ -1589,7 +1695,7 @@ local function drawHud()
     local starImageWidth = starImage:getSize()
     local starX = 400 - scoreTextWidth - starImageWidth - 5 + rightHudOffsetX
 
-    local coinText = tostring(playerCoins)
+    local coinText = tostring(AbilityProgression.getCoins(isOtherSideMode()))
     emptyNumberDigits = 3 - string.len(coinText)
 
     for i = 1, emptyNumberDigits, 1 do
@@ -1613,10 +1719,14 @@ local function drawHud()
 
 end
 
-local function destroyRock(rock)
+local function destroyRock(rock, shouldShake)
     startRockExplosion(rock.x, rock.y)
     playRockExplosionSound()
-    ScreenShake.start(TUNING.ROCK_BREAK_SCREEN_SHAKE)
+
+    if shouldShake ~= false then
+        ScreenShake.start(TUNING.ROCK_BREAK_SCREEN_SHAKE)
+    end
+
     rock.active = false
     rock:setVisible(false)
 end
@@ -1631,7 +1741,7 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed)
         playerImageHeight * currentPlayerScale
     )
 
-    if BoatJump.isAirborne() == false then
+    if isOtherSideMode() == false and BoatJump.isAirborne() == false then
         for i = 1, length do
             local other = collisions[i].other
 
@@ -1665,6 +1775,19 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed)
         end
     end
 
+    if isOtherSideMode() then
+        for i = 1, #decorationSprites do
+            local decoration = decorationSprites[i]
+
+            if decoration.active
+                and decoration.decorationType == "bottle"
+                and playerSprite:alphaCollision(decoration)
+            then
+                decorationManager:clearDecoration(decoration)
+            end
+        end
+    end
+
     playerSprite:setCollideRect(
         playerCollisionX * currentPlayerScale,
         playerCollisionY * currentPlayerScale,
@@ -1673,6 +1796,33 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed)
     )
 
     if BoatJump.isAirborne() then
+        return false
+    end
+
+    if isOtherSideMode() then
+        for i = 1, length do
+            local other = collisions[i].other
+
+            if other ~= nil and other.active then
+                if other.objectType == "rock" and playerSprite:alphaCollision(other) then
+                    destroyRock(other, false)
+                    playerScore += TUNING.OTHER_SIDE_ROCK_SCORE
+                elseif other.objectType == "otherSideSmallBoat"
+                    and playerSprite:alphaCollision(other)
+                then
+                    if shieldHitsRemaining > 0 then
+                        shieldHitsRemaining -= 1
+                        if OtherSide.destroySmallBoat(other) then
+                            playSoundOneShot(boatExplosionSoundPlayer)
+                            ScreenShake.start(TUNING.STEAMBOAT_EXPLOSION_SCREEN_SHAKE)
+                        end
+                    else
+                        return true
+                    end
+                end
+            end
+        end
+
         return false
     end
 
@@ -1718,6 +1868,7 @@ local function hideGameplayWorld()
     clearRockExplosions()
     Ramp.reset()
     Steamboat.reset()
+    OtherSide.reset()
     Whirlpool.reset()
 
     for i = 1, TUNING.MAX_ROCKS do
@@ -1746,6 +1897,7 @@ local function rewindGameplayWorld(elapsedMilliseconds, displacement)
 
     remainingObjectCount += Ramp.rewind(displacement)
     remainingObjectCount += Whirlpool.rewind(displacement)
+    remainingObjectCount += OtherSide.rewind(displacement)
 
     for i = 1, #collectableSprites do
         local collectable = collectableSprites[i]
@@ -1818,11 +1970,16 @@ local function prepareNewRun()
     speedometerNeedleAngle = TUNING.SPEEDOMETER_MIN_ANGLE
     hudSlideProgress = 0
     launchVisualAngle = 180
-    boatEngineSoundRate = TUNING.ENGINE_MIN_WORLD_RATE
-    boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
+    boatEngineSoundRate = isOtherSideMode()
+        and TUNING.OTHER_SIDE_ENGINE_RATE
+        or TUNING.ENGINE_MIN_WORLD_RATE
+    boatEngineSoundVolume = isOtherSideMode()
+        and TUNING.OTHER_SIDE_ENGINE_VOLUME
+        or TUNING.ENGINE_NORMAL_VOLUME
     waterFlowSoundRate = TUNING.WATER_FLOW_MIN_RATE
     gameMusicRate = TUNING.MUSIC_NORMAL_RATE
     musicPlayers.gameplay:stop()
+    musicPlayers.otherSide:stop()
     crashReturnDelayElapsedMilliseconds = 0
 
     scoreTimer:reset()
@@ -1832,6 +1989,7 @@ local function prepareNewRun()
     stopGameplayLoopSounds()
 
     playerSprite:setVisible(true)
+    applyPlayerVessel(isOtherSideMode())
     playerSprite:setScale(1)
     playerSprite:setCollideRect(
         playerCollisionX,
@@ -1847,6 +2005,40 @@ end
 local function updateMainMenuBoatFloat(elapsedMilliseconds)
     menuBoatFloatElapsedMilliseconds += elapsedMilliseconds
 
+    local targetOtherSide = isOtherSideMode()
+    if targetOtherSide ~= menuVesselSwap.targetOtherSide then
+        menuVesselSwap.targetOtherSide = targetOtherSide
+        menuVesselSwap.elapsedMilliseconds = 0
+        menuVesselSwap.active = true
+    end
+
+    local vesselScale = 1
+    if menuVesselSwap.active then
+        menuVesselSwap.elapsedMilliseconds = math.min(
+            TUNING.MAIN_MENU_VESSEL_SWAP_DURATION_MS,
+            menuVesselSwap.elapsedMilliseconds + elapsedMilliseconds
+        )
+
+        local swapProgress = menuVesselSwap.elapsedMilliseconds
+            / TUNING.MAIN_MENU_VESSEL_SWAP_DURATION_MS
+
+        if swapProgress < 0.5 then
+            vesselScale = 1 - swapProgress * 2
+        else
+            if menuVesselSwap.displayedOtherSide ~= menuVesselSwap.targetOtherSide then
+                applyPlayerVessel(menuVesselSwap.targetOtherSide)
+                menuVesselSwap.displayedOtherSide = menuVesselSwap.targetOtherSide
+            end
+
+            vesselScale = (swapProgress - 0.5) * 2
+        end
+
+        if swapProgress >= 1 then
+            menuVesselSwap.active = false
+            vesselScale = 1
+        end
+    end
+
     local verticalPhase = menuBoatFloatElapsedMilliseconds
         / TUNING.MAIN_MENU_BOAT_FLOAT_VERTICAL_PERIOD_MS * math.pi * 2
     local secondaryPhase = menuBoatFloatElapsedMilliseconds
@@ -1860,6 +2052,7 @@ local function updateMainMenuBoatFloat(elapsedMilliseconds)
         + math.sin(verticalPhase) * TUNING.MAIN_MENU_BOAT_FLOAT_VERTICAL_AMPLITUDE
         + math.sin(secondaryPhase) * TUNING.MAIN_MENU_BOAT_FLOAT_SECONDARY_AMPLITUDE
     playerSprite:moveTo(playerX, playerY)
+    playerSprite:setScale(vesselScale)
 end
 
 local function enterMainMenu()
@@ -1878,12 +2071,26 @@ local function enterMainMenu()
 
     playerX = TUNING.MAIN_MENU_BOAT_X
     playerY = TUNING.MAIN_MENU_BOAT_Y
-    playerSprite:setImage(playerImagetable:getImage(TUNING.MAIN_MENU_BOAT_FRAME_INDEX))
+    menuVesselSwap.displayedOtherSide = isOtherSideMode()
+    menuVesselSwap.targetOtherSide = menuVesselSwap.displayedOtherSide
+    menuVesselSwap.elapsedMilliseconds = TUNING.MAIN_MENU_VESSEL_SWAP_DURATION_MS
+    menuVesselSwap.active = false
+    playerSprite:setImage(playerImagetable:getImage(
+        isOtherSideMode()
+            and TUNING.OTHER_SIDE_MAIN_MENU_BOAT_FRAME_INDEX
+            or TUNING.MAIN_MENU_BOAT_FRAME_INDEX
+    ))
     playerSprite:moveTo(playerX, playerY)
     startMenuMusic()
 end
 
 local function startLaunchTransition()
+    if menuVesselSwap.displayedOtherSide ~= isOtherSideMode() then
+        applyPlayerVessel(isOtherSideMode())
+        menuVesselSwap.displayedOtherSide = isOtherSideMode()
+    end
+
+    playerSprite:setScale(1)
     BoatGameState = GameState.LAUNCHING
     presentationElapsedMilliseconds = 0
     launchStartX = playerX
@@ -1931,7 +2138,14 @@ local function beginGameplay()
         resetRockPosition(rockSprites[i])
     end
 
-    Steamboat.beginRun(Difficulty.getSelectedMode().STEAMBOAT_SPAWN_CONFIG)
+    if isOtherSideMode() then
+        Ramp.reset()
+        Steamboat.reset()
+        OtherSide.beginRun()
+    else
+        OtherSide.reset()
+        Steamboat.beginRun(Difficulty.getSelectedMode().STEAMBOAT_SPAWN_CONFIG)
+    end
     Whirlpool.beginRun(Difficulty.getSelectedMode().WHIRLPOOL_SPAWN_CONFIG)
 
     lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
@@ -1950,7 +2164,11 @@ local function beginReturnToMenu()
     mainMenuBackgroundSprite:moveTo(200, TUNING.MAIN_MENU_BACKGROUND_OFFSCREEN_Y)
     playerSprite:setVisible(true)
     playerSprite:setScale(1)
-    playerSprite:setImage(playerImagetable:getImage(TUNING.MAIN_MENU_BOAT_FRAME_INDEX))
+    playerSprite:setImage(playerImagetable:getImage(
+        isOtherSideMode()
+            and TUNING.OTHER_SIDE_MAIN_MENU_BOAT_FRAME_INDEX
+            or TUNING.MAIN_MENU_BOAT_FRAME_INDEX
+    ))
     playerSpeedMode = 1
     playerX = TUNING.MAIN_MENU_BOAT_X
     playerY = TUNING.MAIN_MENU_BACKGROUND_OFFSCREEN_Y
@@ -1966,6 +2184,9 @@ local function smoothstep(progress)
 end
 
 Steamboat.initialize(TUNING, sfxChannel, destroyRock, explosionImagetable)
+OtherSide.initialize(TUNING, sfxChannel, explosionImagetable, function()
+    playSoundOneShot(boatExplosionSoundPlayer)
+end)
 enterMainMenu()
 
 function GameplayProgress.pause()
@@ -2119,6 +2340,7 @@ function playdate.update()
         end
 
         if upgradeMenuState.progress >= 1 and upgradeMenuState.closing == false then
+            local upgradeAbilities = UpgradeMenuUI.getAbilities(upgradeMenuState.isOtherSide)
             local selectionDelta = 0
 
             if pd.buttonJustPressed(pd.kButtonUp) or pd.buttonJustPressed(pd.kButtonLeft) then
@@ -2136,12 +2358,12 @@ function playdate.update()
             if selectionDelta ~= 0 then
                 upgradeMenuState.selectionIndex = (
                     upgradeMenuState.selectionIndex - 1 + selectionDelta
-                ) % #UpgradeMenuUI.ABILITIES + 1
+                ) % #upgradeAbilities + 1
                 upgradeMenuState.message = nil
                 playSoundOneShot(selectAbilitySoundPlayer)
             end
 
-            local selectedAbility = UpgradeMenuUI.ABILITIES[upgradeMenuState.selectionIndex]
+            local selectedAbility = upgradeAbilities[upgradeMenuState.selectionIndex]
 
             if pd.buttonJustPressed(pd.kButtonA) then
                 local _, purchaseMessage = purchaseAbilityUpgrade(selectedAbility.type)
@@ -2167,15 +2389,11 @@ function playdate.update()
         UpgradeMenuUI.draw(
             math.floor(-240 * (1 - upgradeMenuProgress)),
             upgradeMenuState.selectionIndex,
-            {
-                dash = dashUpgradeLevel,
-                shield = shieldUpgradeLevel,
-                shrink = shrinkUpgradeLevel,
-                speedReduction = speedReductionUpgradeLevel
-            },
-            playerCoins,
+            AbilityProgression.getLevels(upgradeMenuState.isOtherSide),
+            AbilityProgression.getCoins(upgradeMenuState.isOtherSide),
             upgradeMenuState.message,
-            TUNING
+            TUNING,
+            upgradeMenuState.isOtherSide
         )
 
         if upgradeMenuState.closing and upgradeMenuState.progress <= 0 then
@@ -2234,6 +2452,7 @@ function playdate.update()
             upgradeMenuState.progress = 0
             upgradeMenuState.closing = false
             upgradeMenuState.message = nil
+            upgradeMenuState.isOtherSide = isOtherSideMode()
             MenuCrankNavigation.reset()
             playSoundOneShot(openUpgradeMenuSoundPlayer)
         elseif MainMenuHUDAnimation.isInteractive() then
@@ -2582,13 +2801,15 @@ function playdate.update()
         end
     end
 
-    Ramp.update(
-        elapsedMilliseconds,
-        worldDisplacement,
-        rockSprites,
-        interpolatedWorldVelocity,
-        Difficulty.getMaxWorldVelocity()
-    )
+    if isOtherSideMode() == false then
+        Ramp.update(
+            elapsedMilliseconds,
+            worldDisplacement,
+            rockSprites,
+            interpolatedWorldVelocity,
+            Difficulty.getMaxWorldVelocity()
+        )
+    end
 
     if Ramp.consumeScreenEntry() then
         for i = 1, TUNING.MAX_ROCKS do
@@ -2619,16 +2840,43 @@ function playdate.update()
     if BoatJump.shouldPauseRockSpawning() == false
         and Ramp.shouldPauseRockSpawning() == false
     then
+        local rockSpawnLimit = isOtherSideMode()
+            and OtherSide.getRockSpawnLimit()
+            or TUNING.MAX_ROCKS
+        local activeRockCount = 0
+
+        for i = 1, TUNING.MAX_ROCKS do
+            if rockSprites[i].active then
+                activeRockCount += 1
+            end
+        end
+
         for i = 1, TUNING.MAX_ROCKS do
             local rock = rockSprites[i]
 
-            if rock.active == false then
-                resetRockPosition(rock)
+            if activeRockCount >= rockSpawnLimit then
+                break
+            end
+
+            if rock.active == false and resetRockPosition(rock) then
+                activeRockCount += 1
             end
         end
     end
 
-    Steamboat.update(elapsedMilliseconds, worldDisplacement, rockSprites)
+    if isOtherSideMode() then
+        OtherSide.update(
+            elapsedMilliseconds,
+            worldDisplacement,
+            interpolatedWorldVelocity,
+            Difficulty.getMaxWorldVelocity(),
+            playerX,
+            playerY,
+            rockSprites
+        )
+    else
+        Steamboat.update(elapsedMilliseconds, worldDisplacement, rockSprites)
+    end
     Whirlpool.update(elapsedMilliseconds, worldDisplacement)
 
     local didLand = BoatJump.update(elapsedMilliseconds)
@@ -2638,10 +2886,15 @@ function playdate.update()
     local crankPositionForVelocity = pd.getCrankPosition() - 90
     updateBButton(elapsedMilliseconds, crankPositionForVelocity)
 
+    local activePlayerVelocity = isOtherSideMode()
+        and TUNING.OTHER_SIDE_PLAYER_VELOCITY
+        or playerVelocity
     local playerVelocityMultiplier = 1
 
     if playerSpeedMode == 2 then
-        playerVelocityMultiplier = 2.25
+        playerVelocityMultiplier = isOtherSideMode()
+            and TUNING.OTHER_SIDE_FAST_MODE_MULTIPLIER
+            or 2.25
     end
 
     if BoatJump.isAirborne() then
@@ -2649,11 +2902,17 @@ function playdate.update()
     end
 
     targetXVelocity =
-        math.cos(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
+        math.cos(math.rad(crankPositionForVelocity))
+            * activePlayerVelocity * playerVelocityMultiplier
     targetYVelocity =
-        math.sin(math.rad(crankPositionForVelocity)) * playerVelocity * playerVelocityMultiplier
+        math.sin(math.rad(crankPositionForVelocity))
+            * activePlayerVelocity * playerVelocityMultiplier
 
     local currentVelocityInterpolationSpeed = velocityInterpolationSpeed
+
+    if isOtherSideMode() then
+        currentVelocityInterpolationSpeed = TUNING.OTHER_SIDE_VELOCITY_INTERPOLATION_SPEED
+    end
 
     if BoatJump.isAirborne() then
         currentVelocityInterpolationSpeed = TUNING.RAMP_AIRBORNE_VELOCITY_INTERPOLATION_SPEED
@@ -2669,18 +2928,34 @@ function playdate.update()
         playerY,
         BoatJump.isAirborne(),
         playerSpeedMode == 2,
-        dashSpeed
+        dashSpeed,
+        isOtherSideMode() and TUNING.OTHER_SIDE_WHIRLPOOL_FORCE_MULTIPLIER or 1,
+        isOtherSideMode() == false
     )
     local movementVelocityX = xVelocity + dashVelocityX + whirlpoolPullX
     local movementVelocityY = yVelocity + dashVelocityY + whirlpoolPullY
     local movementSpeed = math.sqrt(
         movementVelocityX * movementVelocityX + movementVelocityY * movementVelocityY
     )
-    local currentVelocityAngle =
+    local desiredVelocityAngle =
         math.normalizeAngle(math.deg(math.atan2(
             yVelocity + dashVelocityY,
             xVelocity + dashVelocityX
         )) + 90)
+    local currentVelocityAngle = desiredVelocityAngle
+
+    if isOtherSideMode() then
+        local rotationDelta = (desiredVelocityAngle - launchVisualAngle + 180) % 360 - 180
+        local rotationInterpolation = 1 - math.exp(
+            -TUNING.OTHER_SIDE_ROTATION_RESPONSE_PER_SECOND * elapsedMilliseconds / 1000
+        )
+        launchVisualAngle = math.normalizeAngle(
+            launchVisualAngle + rotationDelta * rotationInterpolation
+        )
+        currentVelocityAngle = launchVisualAngle
+    else
+        launchVisualAngle = currentVelocityAngle
+    end
     local playerSpriteIndexFromAngle =
         math.clamp(math.ceil(currentVelocityAngle / 7.5), 1, playerImagetableSize)
     playerSprite:setImage(playerImagetable:getImage(playerSpriteIndexFromAngle))

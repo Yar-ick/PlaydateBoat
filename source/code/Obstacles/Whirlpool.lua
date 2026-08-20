@@ -218,8 +218,12 @@ function Whirlpool.getAttraction(
     playerY,
     isAirborne,
     isFastMode,
-    dashSpeed
+    dashSpeed,
+    forceMultiplier,
+    canCapture
 )
+    forceMultiplier = forceMultiplier or 1
+    canCapture = canCapture ~= false
     if state ~= "active" or escaped or isAirborne then
         stopAttraction()
         return 0, 0
@@ -265,7 +269,7 @@ function Whirlpool.getAttraction(
         fastEscapeElapsedMilliseconds = 0
     end
 
-    if distance <= tuning.WHIRLPOOL_CAPTURE_RADIUS then
+    if canCapture and distance <= tuning.WHIRLPOOL_CAPTURE_RADIUS then
         capturing = true
         captureElapsedMilliseconds = math.min(
             tuning.WHIRLPOOL_CAPTURE_DURATION_MS,
@@ -287,6 +291,7 @@ function Whirlpool.getAttraction(
     local radialForce = tuning.WHIRLPOOL_ATTRACTION_MINIMUM_FORCE
         + (tuning.WHIRLPOOL_ATTRACTION_MAXIMUM_FORCE
             - tuning.WHIRLPOOL_ATTRACTION_MINIMUM_FORCE) * forceProgress
+    radialForce *= forceMultiplier
     local frameScale = elapsedMilliseconds / (1000 / 30)
     local pullDistance = math.min(radialForce * frameScale, distance)
 

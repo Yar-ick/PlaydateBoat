@@ -2,7 +2,9 @@ local pdg <const> = playdate.graphics
 
 local abilityFrameImage = pdg.image.new("images/AbilityFrame")
 local dashImage = pdg.image.new("images/Dash")
+local hornImage = pdg.image.new("images/Horn")
 local shrinkImage = pdg.image.new("images/Srink")
+local growthImage = pdg.image.new("images/Growth")
 local shieldStackImages = {
     pdg.image.new("images/ShieldNoStack"),
     pdg.image.new("images/Shield1Stack"),
@@ -11,11 +13,12 @@ local shieldStackImages = {
 
 AbilityTopUI = {}
 
-local function drawFramedProgress(image, frameX, frameY, progress, canShowFull)
+local function drawFramedProgress(image, frameX, frameY, progress, canShowFull, imageYOffset)
     local frameWidth, frameHeight = abilityFrameImage:getSize()
     local imageWidth, imageHeight = image:getSize()
     local imageX = frameX + math.floor((frameWidth - imageWidth) / 2)
     local imageY = frameY + math.floor((frameHeight - imageHeight) / 2)
+        + (imageYOffset or 0)
     local filledHeight = math.floor(imageHeight * math.clamp(progress, 0, 1) + 0.5)
 
     if canShowFull == false then
@@ -76,13 +79,16 @@ function AbilityTopUI.draw(
     dashIsPurchased,
     shrinkIsPurchased,
     tuning,
-    xOffset
+    xOffset,
+    isOtherSide
 )
     xOffset = xOffset or 0
+    local primaryImage = isOtherSide and hornImage or dashImage
+    local scaleImage = isOtherSide and growthImage or shrinkImage
 
     if dashIsPurchased then
         drawFramedProgress(
-            dashImage,
+            primaryImage,
             tuning.TOP_UI_DASH_FRAME_X + xOffset,
             tuning.TOP_UI_ABILITY_FRAME_Y,
             dashProgress,
@@ -92,11 +98,12 @@ function AbilityTopUI.draw(
 
     if shrinkIsPurchased then
         drawFramedProgress(
-            shrinkImage,
+            scaleImage,
             tuning.TOP_UI_SHRINK_FRAME_X + xOffset,
             tuning.TOP_UI_ABILITY_FRAME_Y,
             shrinkProgress,
-            true
+            true,
+            isOtherSide and 1 or 0
         )
     end
 

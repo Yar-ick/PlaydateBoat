@@ -2,6 +2,7 @@ local tuning = nil
 local highScores = {}
 local selectedModeIndex = 1
 local persistedModeId = nil
+local secretModeUnlocked = false
 
 Difficulty = {}
 
@@ -16,11 +17,26 @@ local function findModeIndex(modeId)
 end
 
 local function isModeUnlocked(mode)
+    if mode.UNLOCK_ALL_ABILITIES then
+        return secretModeUnlocked
+    end
+
     if mode.UNLOCK_MODE_ID == nil then
         return true
     end
 
     return (highScores[mode.UNLOCK_MODE_ID] or 0) >= mode.UNLOCK_SCORE
+end
+
+function Difficulty.setSecretModeUnlocked(isUnlocked)
+    secretModeUnlocked = isUnlocked == true
+
+    if secretModeUnlocked
+        and tuning ~= nil
+        and isModeUnlocked(tuning.DIFFICULTY_MODES[selectedModeIndex])
+    then
+        persistedModeId = tuning.DIFFICULTY_MODES[selectedModeIndex].ID
+    end
 end
 
 function Difficulty.initialize(savedProgress, gameplayTuning)
