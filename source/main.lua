@@ -2693,7 +2693,7 @@ function playdate.update()
         * Whirlpool.getPlayerScale()
     local scaledPlayerWidth = playerImageWidth * visualPlayerScale
     local scaledPlayerHeight = playerImageHeight * visualPlayerScale
-    playerX = math.clamp(playerX, scaledPlayerWidth / 2, 400 - scaledPlayerWidth / 3)
+    playerX = math.clamp(playerX, scaledPlayerWidth / 2, 400 - scaledPlayerWidth / 1.5)
     playerY = math.clamp(
         playerY,
         TUNING.HUD_HEIGHT + playerImageHeight / 2,
