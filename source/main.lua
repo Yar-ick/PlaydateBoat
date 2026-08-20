@@ -516,11 +516,19 @@ mainMenuBackgroundSprite:setZIndex(TUNING.MAIN_MENU_Z_INDEX)
 mainMenuBackgroundSprite:add()
 
 local worldVelocityInterpolationSpeed = 0.08
-local rockImage1 = pdg.image.new("images/Rock1")
-local rockImage2 = pdg.image.new("images/Rock2")
-local rockImage3 = pdg.image.new("images/Rock3")
-local rockImage4 = pdg.image.new("images/Rock4")
-local rockImages = { rockImage1, rockImage2, rockImage3, rockImage4 }
+local rockImageTables = {
+    pdg.imagetable.new("images/Rock1"),
+    pdg.imagetable.new("images/Rock2"),
+    pdg.imagetable.new("images/Rock3"),
+    pdg.imagetable.new("images/Rock4")
+}
+local rockImages = {
+    rockImageTables[1]:getImage(1),
+    rockImageTables[2]:getImage(1),
+    rockImageTables[3]:getImage(1),
+    rockImageTables[4]:getImage(1)
+}
+local rockWaveStartTimeMilliseconds = pd.getCurrentTimeMilliseconds()
 local rockImageWidths = {}
 local rockImageHeights = {}
 local rockSprites = {}
@@ -542,8 +550,31 @@ local function setRockImage(rock, imageIndex)
     rock.imageIndex = imageIndex
     rock.imageWidth = rockImageWidths[imageIndex]
     rock.imageHeight = rockImageHeights[imageIndex]
-    rock:setImage(rockImages[imageIndex])
+
+    if rock.animation == nil then
+        rock.animation = pdg.animation.loop.new(
+            TUNING.ROCK_ANIMATION_FRAME_DELAY_MS,
+            rockImageTables[imageIndex],
+            true
+        )
+    else
+        rock.animation:setImageTable(rockImageTables[imageIndex])
+    end
+
+    rock.animationFrame = nil
+    rock:setImage(rock.animation:image())
     rock:setCollideRect(0, 0, rock.imageWidth, rock.imageHeight)
+end
+
+local function updateRockAnimation(rock)
+    local xPhaseMilliseconds = rock.x * 1000 / TUNING.ROCK_WAVE_SPEED_PIXELS_PER_SECOND
+    rock.animation.t = rockWaveStartTimeMilliseconds + xPhaseMilliseconds
+
+    local animationFrame = rock.animation.frame
+    if animationFrame ~= rock.animationFrame then
+        rock.animationFrame = animationFrame
+        rock:setImage(rock.animation:image())
+    end
 end
 
 local function findRockSpawnPosition(rock)
@@ -572,6 +603,7 @@ local function resetRockPosition(rock)
     end
 
     rock:moveTo(x, y)
+    updateRockAnimation(rock)
     rock.active = true
     rock:setVisible(true)
     return true
@@ -2541,6 +2573,7 @@ function playdate.update()
 
         if rock.active then
             rock:moveBy(worldDisplacement, 0)
+            updateRockAnimation(rock)
 
             if rock.x - rock.imageWidth / 2 > 400 then
                 rock.active = false
