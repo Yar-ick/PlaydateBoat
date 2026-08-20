@@ -1334,83 +1334,51 @@ local function drawShrinkProgressArc(currentVelocityAngle)
     end
 end
 
-local function drawShieldStorage(currentVelocityAngle)
-    if shieldHitsRemaining <= 0 then
-        return
-    end
-
+local function drawShieldStorageArc(currentVelocityAngle, drawFilledSegments)
     local angleRadians = math.rad(currentVelocityAngle)
     local forwardX = math.sin(angleRadians)
     local forwardY = -math.cos(angleRadians)
     local rightX = math.cos(angleRadians)
     local rightY = math.sin(angleRadians)
     local radiusScale = 0.5 + currentPlayerScale * 0.5
-    local starboardDistance = TUNING.DIEGETIC_SHIELD_STARBOARD_DISTANCE * radiusScale
-    local iconCount = math.min(shieldHitsRemaining, 3)
-    local extraRingCharges = math.max(0, math.min(shieldHitsRemaining, 9) - 3)
-    local shieldImageWidth, shieldImageHeight = shieldCollectableImage:getSize()
-    local previousImageDrawMode = pdg.getImageDrawMode()
-    local previousLineWidth = pdg.getLineWidth()
-    local previousColor = pdg.getColor()
+    local majorRadius = TUNING.DIEGETIC_SHIELD_ARC_MAJOR_RADIUS * radiusScale
+    local minorRadius = TUNING.DIEGETIC_SHIELD_ARC_MINOR_RADIUS * radiusScale
+    local segmentCount = TUNING.DIEGETIC_SHIELD_ARC_SEGMENT_COUNT
+    local segmentsToDraw = segmentCount
+    local endInset = math.rad(TUNING.DIEGETIC_SHIELD_ARC_END_INSET_DEGREES)
+    local arcLength = math.pi - endInset * 2
+    local gapFraction = TUNING.DIEGETIC_SHIELD_ARC_GAP_FRACTION
 
-    pdg.setImageDrawMode(pdg.kDrawModeCopy)
-
-    for iconIndex = 1, iconCount do
-        local forwardOffset = 0
-        local iconSpacing = TUNING.DIEGETIC_SHIELD_ICON_SPACING
-
-        if shieldHitsRemaining >= TUNING.MAX_SHIELD_HITS then
-            iconSpacing = TUNING.DIEGETIC_SHIELD_FULL_ICON_SPACING
-        end
-
-        if iconCount == 2 then
-            forwardOffset = (iconIndex - 1.5) * iconSpacing
-        elseif iconCount == 3 then
-            forwardOffset = (iconIndex - 2) * iconSpacing
-        end
-
-        local centerX = playerX + rightX * starboardDistance + forwardX * forwardOffset
-        local centerY = playerY + rightY * starboardDistance + forwardY * forwardOffset
-        local shieldIconScale = TUNING.DIEGETIC_SHIELD_ICON_SCALE
-
-        if shieldHitsRemaining >= TUNING.MAX_SHIELD_HITS and iconIndex == 2 then
-            shieldIconScale = TUNING.DIEGETIC_SHIELD_FULL_CENTER_ICON_SCALE
-        end
-
-        local ringCount = math.floor(extraRingCharges / 3)
-        local partialRingCount = extraRingCharges % 3
-
-        -- Add partial rounds center-first, then aft, then forward.
-        if partialRingCount >= 1 and iconIndex == 2 then
-            ringCount += 1
-        elseif partialRingCount >= 2 and iconIndex == 1 then
-            ringCount += 1
-        end
-
-        for ringIndex = 1, ringCount do
-            local ringRadius = shieldImageWidth * shieldIconScale / 2
-                + TUNING.DIEGETIC_SHIELD_RING_GAP
-                + (ringIndex - 1) * TUNING.DIEGETIC_SHIELD_RING_SPACING
-
-            pdg.setColor(pdg.kColorWhite)
-            pdg.setLineWidth(3)
-            pdg.drawCircleAtPoint(centerX, centerY, ringRadius)
-            pdg.setColor(pdg.kColorBlack)
-            pdg.setLineWidth(1)
-            pdg.drawCircleAtPoint(centerX, centerY, ringRadius)
-        end
-
-        shieldCollectableImage:drawScaled(
-            math.floor(centerX - shieldImageWidth * shieldIconScale / 2 + 0.5),
-            math.floor(centerY - shieldImageHeight * shieldIconScale / 2 + 0.5)
-                + TUNING.DIEGETIC_SHIELD_IMAGE_Y_OFFSET,
-            shieldIconScale
-        )
+    if drawFilledSegments then
+        segmentsToDraw = math.min(shieldHitsRemaining, segmentCount)
     end
 
-    pdg.setImageDrawMode(previousImageDrawMode)
-    pdg.setLineWidth(previousLineWidth)
-    pdg.setColor(previousColor)
+    for segmentIndex = 1, segmentsToDraw do
+        local slotIndex = segmentIndex
+
+        if drawFilledSegments then
+            slotIndex = segmentCount - segmentIndex + 1
+        end
+
+        local slotStart = (slotIndex - 1) / segmentCount
+        local slotEnd = slotIndex / segmentCount
+        local gapInset = gapFraction / segmentCount / 2
+        local segmentStart = slotStart + gapInset
+        local segmentEnd = slotEnd - gapInset
+        local startAngle = math.pi - endInset - arcLength * segmentStart
+        local endAngle = math.pi - endInset - arcLength * segmentEnd
+        local startForward = math.cos(startAngle) * majorRadius
+        local startRight = math.sin(startAngle) * minorRadius
+        local endForward = math.cos(endAngle) * majorRadius
+        local endRight = math.sin(endAngle) * minorRadius
+
+        pdg.drawLine(
+            playerX + forwardX * startForward + rightX * startRight,
+            playerY + forwardY * startForward + rightY * startRight,
+            playerX + forwardX * endForward + rightX * endRight,
+            playerY + forwardY * endForward + rightY * endRight
+        )
+    end
 end
 
 local function drawDiegeticAbilities(currentVelocityAngle)
@@ -1430,6 +1398,11 @@ local function drawDiegeticAbilities(currentVelocityAngle)
         drawShrinkProgressArc(currentVelocityAngle)
     end
 
+    if isAbilityPurchased("shield") and shieldHitsRemaining > 0 then
+        pdg.setLineWidth(TUNING.DIEGETIC_SHIELD_ARC_BACKGROUND_LINE_WIDTH)
+        drawShieldStorageArc(currentVelocityAngle, false)
+    end
+
     pdg.setColor(pdg.kColorBlack)
 
     if isAbilityPurchased("dash") then
@@ -1442,8 +1415,10 @@ local function drawDiegeticAbilities(currentVelocityAngle)
         drawShrinkProgressArc(currentVelocityAngle)
     end
 
-    -- Shield storage uses the recognizable collectable art at a smaller scale.
-    drawShieldStorage(currentVelocityAngle)
+    if isAbilityPurchased("shield") and shieldHitsRemaining > 0 then
+        pdg.setLineWidth(TUNING.DIEGETIC_SHIELD_ARC_LINE_WIDTH)
+        drawShieldStorageArc(currentVelocityAngle, true)
+    end
 
     pdg.setLineWidth(previousLineWidth)
     pdg.setColor(previousColor)
