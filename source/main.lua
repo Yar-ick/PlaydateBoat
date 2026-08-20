@@ -21,6 +21,7 @@ import "code/Effects/LandingSplash"
 import "code/Effects/ScoreFlyEffect"
 import "code/Effects/ScreenShake"
 import "code/Effects/WakeLayer"
+import "code/Effects/FlightShadow"
 import "code/UI/AbilityTopUI"
 import "code/UI/DifficultyMenuUI"
 import "code/UI/MainMenuHUDAnimation"
@@ -530,6 +531,7 @@ local interactableObjectGroups = { rockSprites, collectableSprites, decorationSp
 Ramp.initialize(TUNING, interactableObjectGroups)
 Whirlpool.initialize(TUNING, sfxChannel, interactableObjectGroups)
 BoatJump.initialize(TUNING)
+FlightShadow.initialize(TUNING)
 ScoreFlyEffect.initialize(TUNING)
 
 for i = 1, #rockImages do
@@ -1200,6 +1202,7 @@ local function drawWakeLines()
     Steamboat.drawWakeLines()
     Whirlpool.draw()
     LandingSplash.draw()
+    FlightShadow.draw()
 
     pdg.setLineWidth(previousLineWidth)
     pdg.setColor(previousColor)
@@ -1754,6 +1757,7 @@ end
 local function prepareNewRun()
     ScreenShake.reset()
     BoatJump.reset()
+    FlightShadow.reset()
     GameplayProgress.suspended = true
     xVelocity = 0
     yVelocity = 0
@@ -2688,6 +2692,15 @@ function playdate.update()
     )
     playerSprite:moveTo(playerX, playerY)
     playerSprite:setScale(visualPlayerScale)
+    FlightShadow.update(
+        elapsedMilliseconds,
+        playerX,
+        playerY,
+        BoatJump.isAirborne(),
+        didLand,
+        BoatJump.getScale(),
+        currentPlayerScale
+    )
     updateDashInertia(elapsedMilliseconds)
 
     if didLand then
@@ -2732,6 +2745,7 @@ function playdate.update()
         GameplayProgress.pause()
         stopGameplayLoopSounds()
         playerSprite:setScale(0)
+        FlightShadow.reset()
         clearWakeLines()
         startExplosion(playerX, playerY)
         playSoundOneShot(boatExplosionSoundPlayer)
