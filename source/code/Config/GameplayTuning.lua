@@ -277,13 +277,8 @@ GameplayTuning = {
     TOP_UI_SHRINK_FRAME_X = 74,
     TOP_UI_ABILITY_FRAME_Y = 2,
     TOP_UI_SHIELD_FIRST_X = 122,
-    TOP_UI_SHIELD_FULL_FIRST_X = 124,
     TOP_UI_SHIELD_CENTER_Y = 18,
-    TOP_UI_SHIELD_ICON_SCALE = 0.60,
-    -- 25px shield * 0.88 / 2 + 2px gap + 3px ring spacing = 16px radius.
-    TOP_UI_SHIELD_FULL_FIRST_ICON_SCALE = 0.88,
-    TOP_UI_SHIELD_DOUBLE_RING_SPACING = 30,
-    TOP_UI_SHIELD_FULL_FIRST_GAP = 32,
+    TOP_UI_SHIELD_STACK_SPACING = 30,
 
     SPEEDOMETER_MIN_ANGLE = -120,
     SPEEDOMETER_MAX_ANGLE = 120,
@@ -444,7 +439,7 @@ GameplayTuning = {
     -- Level -1 is locked, level 0 is purchased, and levels 1-3 are upgrades.
     LOCKED_ABILITY_LEVEL = -1,
     SHIELD_HITS_BY_LEVEL = { 1, 2, 3, 4 },
-    MAX_SHIELD_HITS = 10,
+    MAX_SHIELD_HITS = 12,
     SHRINK_DURATION_MS_BY_LEVEL = { 5000, 7000, 10000, 15000 },
     SHRINK_UI_FILL_DURATION_MS = 250,
     SPEED_REDUCTION_BY_LEVEL = { 0.50, 0.75, 1.00, 1.50 },
