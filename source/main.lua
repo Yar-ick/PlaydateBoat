@@ -923,7 +923,8 @@ local upgradeMenuState = {
     closing = false,
     selectionIndex = 1,
     message = nil,
-    messageRemainingMilliseconds = 0
+    messageRemainingMilliseconds = 0,
+    pendingUpgradeSoundPlayer = nil
 }
 
 local function getAbilityUpgradeLevel(abilityType)
@@ -977,7 +978,7 @@ local function purchaseAbilityUpgrade(abilityType)
 
     playerCoins -= cost
     setAbilityUpgradeLevel(abilityType, nextLevel)
-    UpgradeMenuUI.playUpgradeEffect(nextLevel)
+    local shouldDelayUpgradeSound = UpgradeMenuUI.playUpgradeEffect(nextLevel)
 
     if abilityType == "dash" and dashCooldownRemainingMilliseconds <= 0 then
         dashCooldownDurationMilliseconds = getDashCooldownDuration()
@@ -986,10 +987,19 @@ local function purchaseAbilityUpgrade(abilityType)
     markProgressChanged()
     saveProgress()
 
+    local upgradeSoundPlayer
+
     if isPurchase then
-        playSoundOneShot(buyAbilitySoundPlayer)
+        upgradeSoundPlayer = buyAbilitySoundPlayer
     else
-        playSoundOneShot(upgradeAbilitySoundPlayers[nextLevel])
+        upgradeSoundPlayer = upgradeAbilitySoundPlayers[nextLevel]
+    end
+
+    if shouldDelayUpgradeSound then
+        upgradeMenuState.pendingUpgradeSoundPlayer = upgradeSoundPlayer
+    else
+        upgradeMenuState.pendingUpgradeSoundPlayer = nil
+        playSoundOneShot(upgradeSoundPlayer)
     end
 
     return true, nil
@@ -2137,7 +2147,12 @@ function playdate.update()
 
         pdg.sprite.update()
 
-        UpgradeMenuUI.update(elapsedMilliseconds)
+        if UpgradeMenuUI.update(elapsedMilliseconds)
+            and upgradeMenuState.pendingUpgradeSoundPlayer ~= nil
+        then
+            playSoundOneShot(upgradeMenuState.pendingUpgradeSoundPlayer)
+            upgradeMenuState.pendingUpgradeSoundPlayer = nil
+        end
         local upgradeMenuProgress = smoothstep(upgradeMenuState.progress)
         UpgradeMenuUI.draw(
             math.floor(-240 * (1 - upgradeMenuProgress)),

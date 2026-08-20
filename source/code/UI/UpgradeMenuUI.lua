@@ -51,7 +51,9 @@ UpgradeMenuUI = {
     upgradeEffect = {
         active = false,
         elapsedMilliseconds = 0,
-        nodeIndex = 1
+        nodeIndex = 1,
+        contractionDurationMilliseconds = 0,
+        soundPending = false
     }
 }
 
@@ -187,9 +189,17 @@ local function drawUpgradeTrack(level, tuning, yOffset)
             and nodeIndex == level + 2
         local isFilled = isCompleted or (isNextLevel and UpgradeMenuUI.upgradeBlinkOn)
         local centerX = upgradeNodeCenters[nodeIndex]
+        local contractionRadius = nil
 
         if effect.active and nodeIndex == effect.nodeIndex then
             isFilled = false
+
+            if effect.elapsedMilliseconds < effect.contractionDurationMilliseconds then
+                local contractionProgress = smoothstep(
+                    effect.elapsedMilliseconds / effect.contractionDurationMilliseconds
+                )
+                contractionRadius = math.floor(7 * (1 - contractionProgress) + 0.5)
+            end
         end
 
         pdg.setColor(pdg.kColorBlack)
@@ -199,7 +209,9 @@ local function drawUpgradeTrack(level, tuning, yOffset)
         pdg.setColor(pdg.kColorBlack)
         pdg.drawCircleAtPoint(centerX, centerY, 8)
 
-        if isFilled then
+        if contractionRadius ~= nil and contractionRadius > 0 then
+            pdg.fillCircleAtPoint(centerX, centerY, contractionRadius)
+        elseif isFilled then
             pdg.fillCircleAtPoint(centerX, centerY, 7)
         end
     end
@@ -214,8 +226,15 @@ local function drawUpgradeEffect(yOffset, tuning)
 
     local centerX = upgradeNodeCenters[effect.nodeIndex]
     local centerY = yOffset + 133
+    local animationElapsedMilliseconds = effect.elapsedMilliseconds
+        - effect.contractionDurationMilliseconds
+
+    if animationElapsedMilliseconds < 0 then
+        return
+    end
+
     local coreProgress = smoothstep(
-        effect.elapsedMilliseconds / tuning.UPGRADE_EFFECT_CORE_DURATION_MS
+        animationElapsedMilliseconds / tuning.UPGRADE_EFFECT_CORE_DURATION_MS
     )
     local coreRadius = math.floor(7 * coreProgress + 0.5)
 
@@ -225,7 +244,7 @@ local function drawUpgradeEffect(yOffset, tuning)
         pdg.fillCircleAtPoint(centerX, centerY, coreRadius)
     end
 
-    local burstElapsedMilliseconds = effect.elapsedMilliseconds
+    local burstElapsedMilliseconds = animationElapsedMilliseconds
         - tuning.UPGRADE_EFFECT_CORE_DURATION_MS
 
     if burstElapsedMilliseconds < 0 then
@@ -264,15 +283,24 @@ local function drawUpgradeEffect(yOffset, tuning)
 end
 
 function UpgradeMenuUI.playUpgradeEffect(level)
-    UpgradeMenuUI.upgradeEffect.active = true
-    UpgradeMenuUI.upgradeEffect.elapsedMilliseconds = 0
-    UpgradeMenuUI.upgradeEffect.nodeIndex = math.max(
+    local effect = UpgradeMenuUI.upgradeEffect
+    local shouldContract = UpgradeMenuUI.upgradeBlinkOn
+
+    effect.active = true
+    effect.elapsedMilliseconds = 0
+    effect.nodeIndex = math.max(
         1,
         math.min(#upgradeNodeCenters, level + 1)
     )
+    effect.contractionDurationMilliseconds = shouldContract
+        and GameplayTuning.UPGRADE_EFFECT_CONTRACTION_DURATION_MS
+        or 0
+    effect.soundPending = shouldContract
+    return shouldContract
 end
 
 function UpgradeMenuUI.update(elapsedMilliseconds)
+    local shouldPlayUpgradeSound = false
     UpgradeMenuUI.coinElapsedMilliseconds += elapsedMilliseconds
     UpgradeMenuUI.upgradeBlinkElapsedMilliseconds += elapsedMilliseconds
 
@@ -292,9 +320,17 @@ function UpgradeMenuUI.update(elapsedMilliseconds)
     if effect.active then
         effect.elapsedMilliseconds += elapsedMilliseconds
 
+        if effect.soundPending
+            and effect.elapsedMilliseconds >= effect.contractionDurationMilliseconds
+        then
+            effect.soundPending = false
+            shouldPlayUpgradeSound = true
+        end
+
         local particleCount = GameplayTuning.UPGRADE_EFFECT_BASE_PARTICLE_COUNT
             + (effect.nodeIndex - 1) * GameplayTuning.UPGRADE_EFFECT_PARTICLES_PER_LEVEL
-        local totalDurationMilliseconds = GameplayTuning.UPGRADE_EFFECT_CORE_DURATION_MS
+        local totalDurationMilliseconds = effect.contractionDurationMilliseconds
+            + GameplayTuning.UPGRADE_EFFECT_CORE_DURATION_MS
             + GameplayTuning.UPGRADE_EFFECT_BURST_DURATION_MS
             + (particleCount - 1)
                 * GameplayTuning.UPGRADE_EFFECT_PARTICLE_STAGGER_MS
@@ -303,6 +339,8 @@ function UpgradeMenuUI.update(elapsedMilliseconds)
             effect.active = false
         end
     end
+
+    return shouldPlayUpgradeSound
 end
 
 function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tuning)
