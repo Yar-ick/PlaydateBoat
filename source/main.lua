@@ -1255,7 +1255,8 @@ local function drawDashChargeChevrons(currentVelocityAngle, drawWhiteBackground)
     local forwardY = -math.cos(angleRadians)
     local rightX = math.cos(angleRadians)
     local rightY = math.sin(angleRadians)
-    local indicatorRadiusScale = 0.5 + currentPlayerScale * 0.5
+    local indicatorRadiusScale = 0.5
+        + currentPlayerScale * BoatJump.getScale() * 0.5
     local frontDistance = TUNING.DIEGETIC_DASH_FRONT_DISTANCE * indicatorRadiusScale
 
     for chevronIndex = 1, visibleChevronCount do
@@ -1306,7 +1307,8 @@ local function drawShrinkProgressArc(currentVelocityAngle)
     local forwardY = -math.cos(angleRadians)
     local rightX = math.cos(angleRadians)
     local rightY = math.sin(angleRadians)
-    local radiusScale = 0.5 + currentPlayerScale * 0.5
+    local radiusScale = 0.5
+        + currentPlayerScale * BoatJump.getScale() * 0.5
     local majorRadius = TUNING.DIEGETIC_SHRINK_ARC_MAJOR_RADIUS * radiusScale
     local minorRadius = TUNING.DIEGETIC_SHRINK_ARC_MINOR_RADIUS * radiusScale
     local segmentCount = TUNING.DIEGETIC_SHRINK_ARC_SEGMENT_COUNT
@@ -1340,7 +1342,8 @@ local function drawShieldStorageArc(currentVelocityAngle, drawFilledSegments)
     local forwardY = -math.cos(angleRadians)
     local rightX = math.cos(angleRadians)
     local rightY = math.sin(angleRadians)
-    local radiusScale = 0.5 + currentPlayerScale * 0.5
+    local radiusScale = 0.5
+        + currentPlayerScale * BoatJump.getScale() * 0.5
     local majorRadius = TUNING.DIEGETIC_SHIELD_ARC_MAJOR_RADIUS * radiusScale
     local minorRadius = TUNING.DIEGETIC_SHIELD_ARC_MINOR_RADIUS * radiusScale
     local segmentCount = TUNING.DIEGETIC_SHIELD_ARC_SEGMENT_COUNT
