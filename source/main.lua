@@ -626,6 +626,15 @@ local function isCollectableAvailable(collectableType)
     return collectableType == "coin" or isAbilityPurchased(collectableType)
 end
 
+local function canSpawnCollectable(collectableType)
+    if isCollectableAvailable(collectableType) == false then
+        return false
+    end
+
+    return collectableType ~= "speedReduction"
+        or worldVelocity >= Difficulty.getMaxWorldVelocity()
+end
+
 local function onCoinCollected()
     playerCoins += Difficulty.getCoinReward()
     playSoundOneShot(coinPickupSoundPlayer)
@@ -726,7 +735,7 @@ local function updateCollectables(elapsedMilliseconds, worldDisplacement)
                     collectable:despawn()
                 end
             end
-        elseif isCollectableAvailable(collectableType) then
+        elseif canSpawnCollectable(collectableType) then
             local remaining =
                 collectableSpawnRemainingMilliseconds[collectableType] - elapsedMilliseconds
             collectableSpawnRemainingMilliseconds[collectableType] = remaining
