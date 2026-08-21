@@ -1279,11 +1279,10 @@ local function updateWakeLines(
 
         if wakeLineSpawnCounter >= TUNING.OTHER_SIDE_WAKE_SPAWN_INTERVAL_FRAMES then
             local wakeAngle = math.normalizeAngle(currentVelocityAngle + 180)
-            local engineDistance = TUNING.OTHER_SIDE_WAKE_ENGINE_DISTANCE * currentPlayerScale
-            local engineX = playerX
-                + math.sin(math.rad(wakeAngle)) * engineDistance
-            local engineY = playerY
-                - math.cos(math.rad(wakeAngle)) * engineDistance
+            local emitterOffset =
+                TUNING.STEAMBOAT_WAKE_EMITTER_OFFSETS[playerSpriteIndexFromAngle]
+            local engineX = playerX + emitterOffset.x * currentPlayerScale
+            local engineY = playerY + emitterOffset.y * currentPlayerScale
             local spawnCount = TUNING.OTHER_SIDE_WAKE_NORMAL_SPAWN_COUNT
             local speedMultiplier = TUNING.OTHER_SIDE_WAKE_NORMAL_SPEED_MULTIPLIER
             local lengthMultiplier = 1

@@ -169,17 +169,16 @@ local function updateWakeLines(worldDisplacement, applyWakeVelocity)
     WakeLayer.markDirty()
 end
 
-local function emitWake()
+local function emitWake(frame)
     wakeSpawnCounter += 1
     if wakeSpawnCounter < tuning.STEAMBOAT_WAKE_SPAWN_INTERVAL_FRAMES then
         return
     end
 
     local wakeAngle = math.normalizeAngle(movementAngle + 180)
-    local engineX = steamboatSprite.x
-        + math.sin(math.rad(wakeAngle)) * tuning.STEAMBOAT_WAKE_ENGINE_DISTANCE
-    local engineY = steamboatSprite.y
-        - math.cos(math.rad(wakeAngle)) * tuning.STEAMBOAT_WAKE_ENGINE_DISTANCE
+    local emitterOffset = tuning.STEAMBOAT_WAKE_EMITTER_OFFSETS[frame]
+    local engineX = steamboatSprite.x + emitterOffset.x
+    local engineY = steamboatSprite.y + emitterOffset.y
 
     for _ = 1, tuning.STEAMBOAT_WAKE_SPAWN_COUNT do
         spawnWakeLine(engineX, engineY, wakeAngle)
@@ -255,7 +254,7 @@ local function updateActive(elapsedMilliseconds, worldDisplacement, rocks)
 
     steamboatSprite:setImage(steamboatImagetable:getImage(frame))
     steamboatSprite:moveTo(x, y)
-    emitWake()
+    emitWake(frame)
 
     for index = 1, #rocks do
         local rock = rocks[index]
