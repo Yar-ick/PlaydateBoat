@@ -2714,6 +2714,7 @@ function playdate.update()
         local currentRotationAngle = math.normalizeAngle(
             startRotationAngle + rotationDelta * rotationProgress
         )
+        launchVisualAngle = currentRotationAngle
         local playerFrameIndex = math.clamp(
             math.ceil(currentRotationAngle / 7.5),
             1,
