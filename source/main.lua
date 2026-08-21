@@ -42,6 +42,21 @@ local function isOtherSideMode()
         and Difficulty.isSelectedModeUnlocked()
 end
 
+local function getMainMenuBoatPosition(useOtherSideVessel)
+    if useOtherSideVessel then
+        return TUNING.OTHER_SIDE_MAIN_MENU_BOAT_X,
+            TUNING.OTHER_SIDE_MAIN_MENU_BOAT_Y
+    end
+
+    return TUNING.MAIN_MENU_BOAT_X, TUNING.MAIN_MENU_BOAT_Y
+end
+
+local function getGameplayEntryBoatAngle()
+    return isOtherSideMode()
+        and TUNING.OTHER_SIDE_GAMEPLAY_ENTRY_BOAT_ANGLE
+        or TUNING.GAMEPLAY_ENTRY_BOAT_ANGLE
+end
+
 function math.clamp(val, lower, upper)
     return math.max(lower, math.min(upper, val))
 end
@@ -497,8 +512,8 @@ local menuVesselSwap = {
     elapsedMilliseconds = TUNING.MAIN_MENU_VESSEL_SWAP_DURATION_MS,
     active = false
 }
-local launchStartX = TUNING.MAIN_MENU_BOAT_X
-local launchStartY = TUNING.MAIN_MENU_BOAT_Y
+local launchStartX = 0
+local launchStartY = 0
 GameplayProgress = { suspended = true }
 
 local scoreTimer = pd.timer.new(1000, function()
@@ -2060,9 +2075,12 @@ local function updateMainMenuBoatFloat(elapsedMilliseconds)
     local horizontalPhase = menuBoatFloatElapsedMilliseconds
         / TUNING.MAIN_MENU_BOAT_FLOAT_HORIZONTAL_PERIOD_MS * math.pi * 2
 
-    playerX = TUNING.MAIN_MENU_BOAT_X
+    local menuBoatX, menuBoatY = getMainMenuBoatPosition(
+        menuVesselSwap.displayedOtherSide
+    )
+    playerX = menuBoatX
         + math.sin(horizontalPhase) * TUNING.MAIN_MENU_BOAT_FLOAT_HORIZONTAL_AMPLITUDE
-    playerY = TUNING.MAIN_MENU_BOAT_Y
+    playerY = menuBoatY
         + math.sin(verticalPhase) * TUNING.MAIN_MENU_BOAT_FLOAT_VERTICAL_AMPLITUDE
         + math.sin(secondaryPhase) * TUNING.MAIN_MENU_BOAT_FLOAT_SECONDARY_AMPLITUDE
     playerSprite:moveTo(playerX, playerY)
@@ -2083,12 +2101,11 @@ local function enterMainMenu()
     mainMenuBackgroundSprite:moveTo(200, TUNING.MAIN_MENU_BACKGROUND_CENTER_Y)
     setWaterTransform(waterScrollX, TUNING.MAIN_MENU_WATER_CENTER_Y)
 
-    playerX = TUNING.MAIN_MENU_BOAT_X
-    playerY = TUNING.MAIN_MENU_BOAT_Y
     menuVesselSwap.displayedOtherSide = isOtherSideMode()
     menuVesselSwap.targetOtherSide = menuVesselSwap.displayedOtherSide
     menuVesselSwap.elapsedMilliseconds = TUNING.MAIN_MENU_VESSEL_SWAP_DURATION_MS
     menuVesselSwap.active = false
+    playerX, playerY = getMainMenuBoatPosition(menuVesselSwap.displayedOtherSide)
     playerSprite:setImage(playerImagetable:getImage(
         isOtherSideMode()
             and TUNING.OTHER_SIDE_MAIN_MENU_BOAT_FRAME_INDEX
@@ -2184,10 +2201,11 @@ local function beginReturnToMenu()
             or TUNING.MAIN_MENU_BOAT_FRAME_INDEX
     ))
     playerSpeedMode = 1
-    playerX = TUNING.MAIN_MENU_BOAT_X
+    local menuBoatX, menuBoatY = getMainMenuBoatPosition(isOtherSideMode())
+    playerX = menuBoatX
     playerY = TUNING.MAIN_MENU_BACKGROUND_OFFSCREEN_Y
         - TUNING.MAIN_MENU_BACKGROUND_CENTER_Y
-        + TUNING.MAIN_MENU_BOAT_Y
+        + menuBoatY
     playerSprite:moveTo(playerX, playerY)
     startMenuMusic()
 end
@@ -2507,8 +2525,11 @@ function playdate.update()
         startBoatEngineSound()
         startWaterFlowSound()
         presentationElapsedMilliseconds += elapsedMilliseconds
+        local launchDurationMilliseconds = isOtherSideMode()
+            and TUNING.OTHER_SIDE_MENU_LAUNCH_DURATION_MS
+            or TUNING.MENU_LAUNCH_DURATION_MS
         local transitionProgress = smoothstep(
-            presentationElapsedMilliseconds / TUNING.MENU_LAUNCH_DURATION_MS
+            presentationElapsedMilliseconds / launchDurationMilliseconds
         )
         local menuY = TUNING.MAIN_MENU_BACKGROUND_CENTER_Y
             + (TUNING.MAIN_MENU_BACKGROUND_OFFSCREEN_Y
@@ -2521,7 +2542,9 @@ function playdate.update()
             TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
             math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
         )
-        local curve = TUNING.MENU_LAUNCH_CURVE
+        local curve = isOtherSideMode()
+            and TUNING.OTHER_SIDE_MENU_LAUNCH_CURVE
+            or TUNING.MENU_LAUNCH_CURVE
         local curveProgress
         local inverseCurveProgress
         local launchVelocityX
@@ -2579,7 +2602,7 @@ function playdate.update()
                 (transitionProgress - curve.FINAL_ROTATION_START)
                     / (1 - curve.FINAL_ROTATION_START)
             )
-            local finalRotationDelta = (TUNING.GAMEPLAY_ENTRY_BOAT_ANGLE
+            local finalRotationDelta = (getGameplayEntryBoatAngle()
                 - launchTargetAngle + 180) % 360 - 180
             launchTargetAngle = math.normalizeAngle(
                 launchTargetAngle + finalRotationDelta * finalRotationProgress
@@ -2611,7 +2634,7 @@ function playdate.update()
         )
         pdg.sprite.update()
 
-        if presentationElapsedMilliseconds >= TUNING.MENU_LAUNCH_DURATION_MS then
+        if presentationElapsedMilliseconds >= launchDurationMilliseconds then
             beginWaitingForCrank()
         end
 
@@ -2632,7 +2655,7 @@ function playdate.update()
             TUNING.WATER_BACKGROUND_Y_OFFSET
         )
         waitingCrankMovement += math.abs(pd.getCrankChange())
-        local waitingRotationDelta = (TUNING.GAMEPLAY_ENTRY_BOAT_ANGLE
+        local waitingRotationDelta = (getGameplayEntryBoatAngle()
             - launchVisualAngle + 180) % 360 - 180
         local waitingRotationInterpolation = 1 - math.exp(
             -TUNING.MENU_BOAT_ROTATION_RESPONSE_PER_SECOND * elapsedMilliseconds / 1000
@@ -2765,8 +2788,9 @@ function playdate.update()
 
         mainMenuBackgroundSprite:moveTo(200, menuY)
         setWaterTransform(waterScrollX + initialWorldDisplacement, waterY)
-        playerX = TUNING.MAIN_MENU_BOAT_X
-        playerY = menuY - TUNING.MAIN_MENU_BACKGROUND_CENTER_Y + TUNING.MAIN_MENU_BOAT_Y
+        local menuBoatX, menuBoatY = getMainMenuBoatPosition(isOtherSideMode())
+        playerX = menuBoatX
+        playerY = menuY - TUNING.MAIN_MENU_BACKGROUND_CENTER_Y + menuBoatY
         playerSprite:moveTo(playerX, playerY)
         pdg.sprite.update()
 
