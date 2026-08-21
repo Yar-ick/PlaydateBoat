@@ -12,11 +12,38 @@ local wakeLines = {}
 local wakeLineCursor = 1
 local spawnRemainingMilliseconds = 0
 local hornRemainingMilliseconds = 0
+local hornRadius = 0
+local hornRadiusState = "idle"
+local hornRadiusElapsedMilliseconds = 0
+local hornCollapseStartRadius = 0
+local hornSequence = 0
 local activeRockLimit = nil
 local spawnPending = false
 local running = false
 
 OtherSide = {}
+
+local function smoothstep(progress)
+    progress = math.max(0, math.min(1, progress))
+    return progress * progress * (3 - 2 * progress)
+end
+
+local function getHornAxes(playerAngle)
+    local angleRadians = math.rad(playerAngle)
+    return math.sin(angleRadians), -math.cos(angleRadians),
+        math.cos(angleRadians), math.sin(angleRadians)
+end
+
+local function toHornLocal(deltaX, deltaY, playerAngle)
+    local majorX, majorY, minorX, minorY = getHornAxes(playerAngle)
+    return deltaX * majorX + deltaY * majorY,
+        deltaX * minorX + deltaY * minorY
+end
+
+local function getCurrentHornRadii()
+    local progress = hornRadius / tuning.OTHER_SIDE_HORN_WARNING_RADIUS_X
+    return hornRadius, tuning.OTHER_SIDE_HORN_WARNING_RADIUS_Y * progress
+end
 
 local function clearWakeLines()
     for index = 1, #wakeLines do
@@ -219,9 +246,18 @@ local function updateExplosions(worldDisplacement)
     end
 end
 
-local function laneScore(boat, candidateY, targetY, playerX, playerY, rocks)
+local function laneScore(
+    boat,
+    candidateY,
+    targetY,
+    playerX,
+    playerY,
+    playerAngle,
+    rocks
+)
     local score = math.abs(candidateY - targetY)
     local boatHalfHeight = boat.imageHeight / 2
+    local boatCollisionHalfHeight = boat.collisionHeight / 2
 
     for index = 1, #rocks do
         local rock = rocks[index]
@@ -255,13 +291,48 @@ local function laneScore(boat, candidateY, targetY, playerX, playerY, rocks)
         end
     end
 
+    if hornRemainingMilliseconds > 0 and hornRadius > 0 then
+        local radiusX, radiusY = getCurrentHornRadii()
+        radiusX += boat.collisionWidth / 2 + tuning.OTHER_SIDE_HORN_AVOIDANCE_PADDING
+        radiusY += boatCollisionHalfHeight + tuning.OTHER_SIDE_HORN_AVOIDANCE_PADDING
+        local boatLocalX, boatLocalY = toHornLocal(
+            boat.x - playerX,
+            boat.y - playerY,
+            playerAngle
+        )
+        local pathX, pathY = toHornLocal(
+            tuning.OTHER_SIDE_SMALL_BOAT_ROCK_LOOKAHEAD,
+            candidateY - boat.y,
+            playerAngle
+        )
+        local pathLengthSquared = pathX * pathX + pathY * pathY
+        local projection = math.max(
+            0,
+            math.min(
+                1,
+                -(boatLocalX * pathX + boatLocalY * pathY) / pathLengthSquared
+            )
+        )
+        local closestX = boatLocalX + pathX * projection
+        local closestY = boatLocalY + pathY * projection
+        local distance = math.sqrt(
+            closestX * closestX / (radiusX * radiusX)
+                + closestY * closestY / (radiusY * radiusY)
+        )
+
+        if distance < 1 then
+            score += tuning.OTHER_SIDE_HORN_AVOIDANCE_PENALTY
+                * (1 - distance)
+        end
+    end
+
     if boat.warned then
         local playerDistanceX = playerX - boat.x
 
         if playerDistanceX >= -boat.imageWidth
             and playerDistanceX <= tuning.OTHER_SIDE_SMALL_BOAT_PLAYER_LOOKAHEAD
         then
-            local clearance = boatHalfHeight
+            local clearance = boatCollisionHalfHeight
                 + tuning.OTHER_SIDE_PLAYER_AVOIDANCE_HALF_HEIGHT
             local distanceY = math.abs(candidateY - playerY)
 
@@ -275,7 +346,7 @@ local function laneScore(boat, candidateY, targetY, playerX, playerY, rocks)
     return score
 end
 
-local function chooseLane(boat, playerX, playerY, rocks)
+local function chooseLane(boat, playerX, playerY, playerAngle, rocks)
     local minimumY = tuning.HUD_HEIGHT + boat.imageHeight / 2
     local maximumY = 240 - boat.imageHeight / 2
     local targetY = playerY
@@ -285,10 +356,26 @@ local function chooseLane(boat, playerX, playerY, rocks)
     end
 
     local bestY = math.max(minimumY, math.min(maximumY, targetY))
-    local bestScore = laneScore(boat, bestY, targetY, playerX, playerY, rocks)
+    local bestScore = laneScore(
+        boat,
+        bestY,
+        targetY,
+        playerX,
+        playerY,
+        playerAngle,
+        rocks
+    )
 
     for candidateY = minimumY, maximumY, tuning.OTHER_SIDE_SMALL_BOAT_LANE_STEP do
-        local score = laneScore(boat, candidateY, targetY, playerX, playerY, rocks)
+        local score = laneScore(
+            boat,
+            candidateY,
+            targetY,
+            playerX,
+            playerY,
+            playerAngle,
+            rocks
+        )
 
         if score < bestScore then
             bestScore = score
@@ -332,6 +419,67 @@ local function findBlockingRock(boat, rocks)
     return blockingRock
 end
 
+local function applyHornAvoidance(
+    boat,
+    playerX,
+    playerY,
+    playerAngle,
+    targetSpeed,
+    targetVelocityX,
+    targetVelocityY
+)
+    if hornRemainingMilliseconds <= 0 or hornRadius <= 0 then
+        return targetVelocityX, targetVelocityY
+    end
+
+    local localX, localY = toHornLocal(
+        boat.x - playerX,
+        boat.y - playerY,
+        playerAngle
+    )
+    local radiusX, radiusY = getCurrentHornRadii()
+    radiusX += boat.collisionWidth / 2 + tuning.OTHER_SIDE_HORN_AVOIDANCE_PADDING
+    radiusY += boat.collisionHeight / 2 + tuning.OTHER_SIDE_HORN_AVOIDANCE_PADDING
+    local responseRadiusX = radiusX + tuning.OTHER_SIDE_HORN_EMERGENCY_MARGIN
+    local responseRadiusY = radiusY + tuning.OTHER_SIDE_HORN_EMERGENCY_MARGIN
+    local directionAngle = math.atan2(localY, localX)
+    local directionX = math.cos(directionAngle)
+    local directionY = math.sin(directionAngle)
+    local distance = math.sqrt(localX * localX + localY * localY)
+    local avoidanceBoundary = 1 / math.sqrt(
+        directionX * directionX / (radiusX * radiusX)
+            + directionY * directionY / (radiusY * radiusY)
+    )
+    local responseBoundary = 1 / math.sqrt(
+        directionX * directionX / (responseRadiusX * responseRadiusX)
+            + directionY * directionY / (responseRadiusY * responseRadiusY)
+    )
+
+    if distance >= responseBoundary then
+        return targetVelocityX, targetVelocityY
+    end
+
+    if boat.hornAvoidanceSequence ~= hornSequence then
+        boat.hornAvoidanceSequence = hornSequence
+        boat.hornAvoidanceToBottom = boat.y >= playerY
+        boat.warned = true
+        boat.escapeToBottom = boat.hornAvoidanceToBottom
+    end
+
+    local proximity = 1 - math.max(0, distance - avoidanceBoundary)
+        / math.max(1, responseBoundary - avoidanceBoundary)
+    proximity = math.max(0, math.min(1, proximity))
+    local forwardMultiplier = 1 - proximity
+        * (1 - tuning.OTHER_SIDE_HORN_FORWARD_SPEED_MULTIPLIER)
+    local escapeMultiplier = 1 + proximity
+        * (tuning.OTHER_SIDE_HORN_ESCAPE_SPEED_MULTIPLIER - 1)
+
+    targetVelocityX *= forwardMultiplier
+    targetVelocityY = (boat.hornAvoidanceToBottom and 1 or -1)
+        * targetSpeed * escapeMultiplier
+    return targetVelocityX, targetVelocityY
+end
+
 local function handleRockCollision(boat, rocks)
     for index = 1, #rocks do
         local rock = rocks[index]
@@ -355,7 +503,7 @@ local function handleRockCollision(boat, rocks)
     return false
 end
 
-local function spawn(playerY, rocks, playerX)
+local function spawn(playerY, rocks, playerX, playerAngle)
     local boat = nil
 
     for index = 1, #boats do
@@ -380,27 +528,33 @@ local function spawn(playerY, rocks, playerX)
     boat.replanRemainingMilliseconds = 0
     boat.movementAngle = 90
     boat.frameIndex = 12
+    boat.hornAvoidanceSequence = 0
+    boat.hornAvoidanceToBottom = false
     boat:setImage(smallBoatImagetable:getImage(12))
     boat:moveTo(tuning.OTHER_SIDE_SMALL_BOAT_SPAWN_X, playerY)
-    chooseLane(boat, playerX, playerY, rocks)
+    chooseLane(boat, playerX, playerY, playerAngle, rocks)
     boat:setVisible(true)
     resetSpawnCountdown()
     return true
 end
 
-local function warnBoatsInHornRange(playerX, playerY)
-    local radiusSquared = tuning.OTHER_SIDE_HORN_WARNING_RADIUS
-        * tuning.OTHER_SIDE_HORN_WARNING_RADIUS
-
+local function warnBoatsInHornRange(playerX, playerY, playerAngle)
     for index = 1, #boats do
         local boat = boats[index]
 
         if boat.active then
-            local deltaX = boat.x - playerX
-            local deltaY = boat.y - playerY
+            local localX, localY = toHornLocal(
+                boat.x - playerX,
+                boat.y - playerY,
+                playerAngle
+            )
+            local normalizedDistance = localX * localX
+                    / (tuning.OTHER_SIDE_HORN_WARNING_RADIUS_X ^ 2)
+                + localY * localY
+                    / (tuning.OTHER_SIDE_HORN_WARNING_RADIUS_Y ^ 2)
 
             if boat.warned == false
-                and deltaX * deltaX + deltaY * deltaY <= radiusSquared
+                and normalizedDistance <= 1
             then
                 boat.warned = true
                 boat.escapeToBottom = boat.y >= playerY
@@ -410,19 +564,49 @@ local function warnBoatsInHornRange(playerX, playerY)
     end
 end
 
-local function updateHorn(elapsedMilliseconds, playerX, playerY)
-    if hornRemainingMilliseconds <= 0 then
-        return
+local function updateHorn(elapsedMilliseconds, playerX, playerY, playerAngle)
+    if hornRemainingMilliseconds > 0 then
+        warnBoatsInHornRange(playerX, playerY, playerAngle)
+        hornRemainingMilliseconds = math.max(
+            0,
+            hornRemainingMilliseconds - elapsedMilliseconds
+        )
+
+        if hornRemainingMilliseconds == 0 then
+            if hornSoundPlayer:isPlaying() then
+                hornSoundPlayer:stop()
+            end
+
+            hornRadiusState = "collapsing"
+            hornRadiusElapsedMilliseconds = 0
+            hornCollapseStartRadius = hornRadius
+        end
     end
 
-    warnBoatsInHornRange(playerX, playerY)
-    hornRemainingMilliseconds = math.max(
-        0,
-        hornRemainingMilliseconds - elapsedMilliseconds
-    )
+    if hornRadiusState == "expanding" then
+        hornRadiusElapsedMilliseconds += elapsedMilliseconds
+        local progress = smoothstep(
+            hornRadiusElapsedMilliseconds
+                / tuning.OTHER_SIDE_HORN_RADIUS_EXPAND_DURATION_MS
+        )
+        hornRadius = tuning.OTHER_SIDE_HORN_WARNING_RADIUS_X * progress
 
-    if hornRemainingMilliseconds == 0 and hornSoundPlayer:isPlaying() then
-        hornSoundPlayer:stop()
+        if progress >= 1 then
+            hornRadius = tuning.OTHER_SIDE_HORN_WARNING_RADIUS_X
+            hornRadiusState = "active"
+        end
+    elseif hornRadiusState == "collapsing" then
+        hornRadiusElapsedMilliseconds += elapsedMilliseconds
+        local progress = smoothstep(
+            hornRadiusElapsedMilliseconds
+                / tuning.OTHER_SIDE_HORN_RADIUS_COLLAPSE_DURATION_MS
+        )
+        hornRadius = hornCollapseStartRadius * (1 - progress)
+
+        if progress >= 1 then
+            hornRadius = 0
+            hornRadiusState = "idle"
+        end
     end
 end
 
@@ -446,17 +630,21 @@ function OtherSide.initialize(
         boat.collisionResponse = pdg.sprite.kCollisionTypeOverlap
         boat.imageWidth = imageWidth
         boat.imageHeight = imageHeight
+        boat.collisionWidth = imageWidth / 3
+        boat.collisionHeight = imageHeight / 5
         boat.active = false
         boat.warned = false
         boat.wakeSpawnCounter = 0
         boat.frameIndex = 1
+        boat.hornAvoidanceSequence = 0
+        boat.hornAvoidanceToBottom = false
         boat.engineSoundPlayer = pds.sampleplayer.new("sounds/BoatEngine")
         sfxChannel:addSource(boat.engineSoundPlayer)
         boat:setCollideRect(
             imageWidth / 3,
             imageHeight / 2,
-            imageWidth / 3,
-            imageHeight / 5
+            boat.collisionWidth,
+            boat.collisionHeight
         )
         boat:setZIndex(tuning.OTHER_SIDE_SMALL_BOAT_Z_INDEX)
         boat:setVisible(false)
@@ -482,6 +670,7 @@ function OtherSide.update(
     maximumWorldVelocity,
     playerX,
     playerY,
+    playerAngle,
     rocks
 )
     updateExplosions(worldDisplacement)
@@ -505,12 +694,12 @@ function OtherSide.update(
         end
 
         if prepareRockField(rocks) then
-            spawn(playerY, rocks, playerX)
+            spawn(playerY, rocks, playerX, playerAngle)
             spawnPending = false
         end
     end
 
-    updateHorn(elapsedMilliseconds, playerX, playerY)
+    updateHorn(elapsedMilliseconds, playerX, playerY, playerAngle)
 
     for index = 1, #boats do
         local boat = boats[index]
@@ -520,7 +709,7 @@ function OtherSide.update(
             boat.replanRemainingMilliseconds -= elapsedMilliseconds
 
             if boat.replanRemainingMilliseconds <= 0 then
-                chooseLane(boat, playerX, playerY, rocks)
+                chooseLane(boat, playerX, playerY, playerAngle, rocks)
                 boat.replanRemainingMilliseconds =
                     tuning.OTHER_SIDE_SMALL_BOAT_REPLAN_INTERVAL_MS
             end
@@ -546,6 +735,16 @@ function OtherSide.update(
                 targetVelocityX = 0
                 targetVelocityY = escapeDirection * targetSpeed
             end
+
+            targetVelocityX, targetVelocityY = applyHornAvoidance(
+                boat,
+                playerX,
+                playerY,
+                playerAngle,
+                targetSpeed,
+                targetVelocityX,
+                targetVelocityY
+            )
 
             local interpolation = tuning.OTHER_SIDE_SMALL_BOAT_VELOCITY_INTERPOLATION_SPEED
             boat.velocityX += (targetVelocityX - boat.velocityX) * interpolation
@@ -582,7 +781,7 @@ function OtherSide.update(
     end
 end
 
-function OtherSide.drawWakeLines()
+function OtherSide.drawWakeLines(playerX, playerY, playerAngle)
     for index = 1, #wakeLines do
         local line = wakeLines[index]
 
@@ -599,9 +798,32 @@ function OtherSide.drawWakeLines()
             )
         end
     end
+
+    if hornRadius > 0 then
+        pdg.setLineWidth(tuning.OTHER_SIDE_HORN_RADIUS_LINE_WIDTH)
+        local radiusX, radiusY = getCurrentHornRadii()
+        local majorX, majorY, minorX, minorY = getHornAxes(playerAngle)
+        local previousX = playerX + majorX * radiusX
+        local previousY = playerY + majorY * radiusX
+
+        for segmentIndex = 1, tuning.OTHER_SIDE_HORN_RADIUS_SEGMENT_COUNT do
+            local angle = segmentIndex * math.pi * 2
+                / tuning.OTHER_SIDE_HORN_RADIUS_SEGMENT_COUNT
+            local x = playerX
+                + majorX * math.cos(angle) * radiusX
+                + minorX * math.sin(angle) * radiusY
+            local y = playerY
+                + majorY * math.cos(angle) * radiusX
+                + minorY * math.sin(angle) * radiusY
+
+            pdg.drawLine(previousX, previousY, x, y)
+            previousX = x
+            previousY = y
+        end
+    end
 end
 
-function OtherSide.soundHorn(playerX, playerY)
+function OtherSide.soundHorn(playerX, playerY, playerAngle)
     if running == false then
         return false
     end
@@ -613,8 +835,13 @@ function OtherSide.soundHorn(playerX, playerY)
     hornSoundPlayer:setOffset(0)
     hornSoundPlayer:setVolume(tuning.OTHER_SIDE_HORN_VOLUME)
     hornSoundPlayer:play()
+    hornSequence += 1
     hornRemainingMilliseconds = tuning.OTHER_SIDE_HORN_DURATION_MS
-    warnBoatsInHornRange(playerX, playerY)
+    hornRadius = 0
+    hornRadiusState = "expanding"
+    hornRadiusElapsedMilliseconds = 0
+    hornCollapseStartRadius = 0
+    warnBoatsInHornRange(playerX, playerY, playerAngle)
 
     return true
 end
@@ -669,6 +896,10 @@ end
 
 function OtherSide.stopSounds()
     hornRemainingMilliseconds = 0
+    hornRadius = 0
+    hornRadiusState = "idle"
+    hornRadiusElapsedMilliseconds = 0
+    hornCollapseStartRadius = 0
 
     if hornSoundPlayer ~= nil and hornSoundPlayer:isPlaying() then
         hornSoundPlayer:stop()

@@ -750,8 +750,11 @@ local function onShieldCollected()
         return
     end
 
+    local maximumShieldHits = isOtherSideMode()
+        and TUNING.OTHER_SIDE_MAX_SHIELD_HITS
+        or TUNING.MAX_SHIELD_HITS
     shieldHitsRemaining = math.min(
-        TUNING.MAX_SHIELD_HITS,
+        maximumShieldHits,
         shieldHitsRemaining
             + TUNING.SHIELD_HITS_BY_LEVEL[
                 AbilityProgression.getLevel("shield", isOtherSideMode()) + 1
@@ -945,6 +948,10 @@ local function updatePlayerScale(elapsedMilliseconds)
 end
 
 local function updateDashCooldown(elapsedMilliseconds)
+    local uiDrainDurationMilliseconds = isOtherSideMode()
+        and TUNING.OTHER_SIDE_HORN_DURATION_MS
+        or TUNING.DASH_UI_DRAIN_DURATION_MS
+
     if dashCooldownRemainingMilliseconds > 0 then
         dashCooldownRemainingMilliseconds =
             math.max(0, dashCooldownRemainingMilliseconds - elapsedMilliseconds)
@@ -953,15 +960,22 @@ local function updateDashCooldown(elapsedMilliseconds)
     if dashUiIsDraining then
         dashUiProgress = math.max(
             0,
-            dashUiProgress - elapsedMilliseconds / TUNING.DASH_UI_DRAIN_DURATION_MS
+            dashUiProgress - elapsedMilliseconds / uiDrainDurationMilliseconds
         )
 
         if dashUiProgress == 0 then
             dashUiIsDraining = false
         end
     elseif dashCooldownRemainingMilliseconds > 0 then
-        dashUiProgress = 1
-            - dashCooldownRemainingMilliseconds / dashCooldownDurationMilliseconds
+        local rechargeDurationMilliseconds = math.max(
+            1,
+            dashCooldownDurationMilliseconds - uiDrainDurationMilliseconds
+        )
+        dashUiProgress = math.clamp(
+            1 - dashCooldownRemainingMilliseconds / rechargeDurationMilliseconds,
+            0,
+            1
+        )
     else
         dashUiProgress = 1
     end
@@ -1006,7 +1020,7 @@ local function startHorn()
         return false
     end
 
-    if OtherSide.soundHorn(playerX, playerY) == false then
+    if OtherSide.soundHorn(playerX, playerY, launchVisualAngle) == false then
         return false
     end
 
@@ -1355,7 +1369,7 @@ local function drawWakeLines()
     end
 
     Steamboat.drawWakeLines()
-    OtherSide.drawWakeLines()
+    OtherSide.drawWakeLines(playerX, playerY, launchVisualAngle)
     Whirlpool.draw()
     LandingSplash.draw()
     FlightShadow.draw()
@@ -2872,6 +2886,7 @@ function playdate.update()
             Difficulty.getMaxWorldVelocity(),
             playerX,
             playerY,
+            launchVisualAngle,
             rockSprites
         )
     else
