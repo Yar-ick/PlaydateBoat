@@ -212,6 +212,21 @@ local function stopBoatEngineSound()
     end
 end
 
+local function resetBoatEngineSoundForCurrentMode()
+    stopBoatEngineSound()
+
+    if isOtherSideMode() then
+        boatEngineSoundRate = TUNING.OTHER_SIDE_ENGINE_RATE
+        boatEngineSoundVolume = TUNING.OTHER_SIDE_ENGINE_VOLUME
+    else
+        boatEngineSoundRate = TUNING.ENGINE_MIN_WORLD_RATE
+        boatEngineSoundVolume = TUNING.ENGINE_NORMAL_VOLUME
+    end
+
+    boatEngineSoundPlayer:setRate(boatEngineSoundRate)
+    boatEngineSoundPlayer:setVolume(boatEngineSoundVolume)
+end
+
 local function updateBoatEngineSound(isFast, isShrunk, currentWorldVelocity)
     if isOtherSideMode() then
         local targetRate = TUNING.OTHER_SIDE_ENGINE_RATE
@@ -2129,6 +2144,7 @@ local function startLaunchTransition()
     resetCollectables()
     clearWakeLines()
     playSoundOneShot(startJourneySoundPlayer)
+    resetBoatEngineSoundForCurrentMode()
     startBoatEngineSound()
     startWaterFlowSound()
     startMenuMusic()
