@@ -481,13 +481,11 @@ pd.getSystemMenu():addOptionsMenuItem("audio", AUDIO_MODE_OPTIONS, selectedAudio
     selectedAudioMode = newAudioMode
     applyAudioMode()
     markProgressChanged()
-    saveProgress()
 end)
 
 pd.getSystemMenu():addOptionsMenuItem("UI", UI_MODE_OPTIONS, selectedUiMode, function(newUiMode)
     selectedUiMode = newUiMode
     markProgressChanged()
-    saveProgress()
 end)
 
 -- Player variables
@@ -772,7 +770,6 @@ local function onCoinCollected()
     AbilityProgression.addCoins(Difficulty.getCoinReward(), isOtherSideMode())
     playSoundOneShot(coinPickupSoundPlayer)
     markProgressChanged()
-    saveProgress()
 end
 
 local function onShieldCollected()
@@ -1050,7 +1047,9 @@ local function startHorn()
         return false
     end
 
-    if OtherSide.soundHorn(playerX, playerY, launchVisualAngle) == false then
+    local hornLevel = math.max(0, AbilityProgression.getLevel("horn", true))
+
+    if OtherSide.soundHorn(playerX, playerY, launchVisualAngle, hornLevel) == false then
         return false
     end
 
@@ -1143,7 +1142,6 @@ local function purchaseAbilityUpgrade(abilityType)
     Difficulty.setSecretModeUnlocked(AbilityProgression.areRegularAbilitiesMaxed())
 
     markProgressChanged()
-    saveProgress()
 
     local upgradeSoundPlayer
 
@@ -2102,6 +2100,7 @@ local function updateMainMenuBoatFloat(elapsedMilliseconds)
 end
 
 local function enterMainMenu()
+    saveProgress()
     prepareNewRun()
     BoatGameState = GameState.MAIN_MENU
     MenuCrankNavigation.reset()
@@ -2187,12 +2186,13 @@ local function beginGameplay()
     if isOtherSideMode() then
         Ramp.reset()
         Steamboat.reset()
+        Whirlpool.reset()
         OtherSide.beginRun()
     else
         OtherSide.reset()
         Steamboat.beginRun(Difficulty.getSelectedMode().STEAMBOAT_SPAWN_CONFIG)
+        Whirlpool.beginRun(Difficulty.getSelectedMode().WHIRLPOOL_SPAWN_CONFIG)
     end
-    Whirlpool.beginRun(Difficulty.getSelectedMode().WHIRLPOOL_SPAWN_CONFIG)
 
     lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
     startGameplayLoopSounds()
@@ -2298,6 +2298,7 @@ function playdate.gameWillPause()
 end
 
 function playdate.gameWillResume()
+    saveProgress()
     GameplayProgress.resumeAfterSystemInterruption()
 end
 
@@ -2444,6 +2445,7 @@ function playdate.update()
         )
 
         if upgradeMenuState.closing and upgradeMenuState.progress <= 0 then
+            saveProgress()
             BoatGameState = GameState.MAIN_MENU
             upgradeMenuState.closing = false
             MenuCrankNavigation.reset()
@@ -2520,7 +2522,6 @@ function playdate.update()
             if modeSelectionDelta ~= 0 then
                 Difficulty.select(modeSelectionDelta)
                 markProgressChanged()
-                saveProgress()
                 playSoundOneShot(selectAbilitySoundPlayer)
             elseif pd.buttonJustPressed(pd.kButtonA) then
                 if Difficulty.isSelectedModeUnlocked() then
@@ -2931,8 +2932,8 @@ function playdate.update()
         )
     else
         Steamboat.update(elapsedMilliseconds, worldDisplacement, rockSprites)
+        Whirlpool.update(elapsedMilliseconds, worldDisplacement)
     end
-    Whirlpool.update(elapsedMilliseconds, worldDisplacement)
 
     local didLand = BoatJump.update(elapsedMilliseconds)
     updatePlayerScale(elapsedMilliseconds)
@@ -2977,16 +2978,20 @@ function playdate.update()
     yVelocity += (targetYVelocity - yVelocity) * currentVelocityInterpolationSpeed
 
     local dashSpeed = math.sqrt(dashVelocityX * dashVelocityX + dashVelocityY * dashVelocityY)
-    local whirlpoolPullX, whirlpoolPullY = Whirlpool.getAttraction(
-        elapsedMilliseconds,
-        playerX,
-        playerY,
-        BoatJump.isAirborne(),
-        playerSpeedMode == 2,
-        dashSpeed,
-        isOtherSideMode() and TUNING.OTHER_SIDE_WHIRLPOOL_FORCE_MULTIPLIER or 1,
-        isOtherSideMode() == false
-    )
+    local whirlpoolPullX, whirlpoolPullY = 0, 0
+
+    if isOtherSideMode() == false then
+        whirlpoolPullX, whirlpoolPullY = Whirlpool.getAttraction(
+            elapsedMilliseconds,
+            playerX,
+            playerY,
+            BoatJump.isAirborne(),
+            playerSpeedMode == 2,
+            dashSpeed,
+            1,
+            true
+        )
+    end
     local movementVelocityX = xVelocity + dashVelocityX + whirlpoolPullX
     local movementVelocityY = yVelocity + dashVelocityY + whirlpoolPullY
     local movementSpeed = math.sqrt(
@@ -3101,7 +3106,6 @@ function playdate.update()
     if didCrash then
         if Difficulty.recordScore(playerScore) then
             markProgressChanged()
-            saveProgress()
         end
 
         BoatGameState = GameState.CRASH_REWIND

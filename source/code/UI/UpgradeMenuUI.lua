@@ -51,7 +51,7 @@ local otherSideAbilities = {
         type = "horn",
         title = "HORN",
         description = "Warn small boats to move away.",
-        upgradeDescription = "Upgrade: reduce cooldown.",
+        upgradeDescription = "Upgrade: + range, - cooldown.",
         image = images.horn
     },
     {
