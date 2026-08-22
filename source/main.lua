@@ -30,6 +30,7 @@ import "code/UI/DifficultyMenuUI"
 import "code/UI/MainMenuHUDAnimation"
 import "code/UI/MenuCrankNavigation"
 import "code/UI/UpgradeMenuUI"
+import "code/UI/WaitingControlsUI"
 
 -- Localizing commonly used globals
 local pd <const> = playdate
@@ -533,7 +534,8 @@ local launchStartY = 0
 GameplayProgress = {
     suspended = true,
     impulseCharge = 0,
-    hornActiveRemainingMilliseconds = 0
+    hornActiveRemainingMilliseconds = 0,
+    waitingControlsSlideProgress = 0
 }
 
 local scoreTimer = pd.timer.new(1000, function()
@@ -2053,6 +2055,7 @@ local function prepareNewRun()
     shrinkUiIsFilling = false
     GameplayProgress.impulseCharge = 0
     GameplayProgress.hornActiveRemainingMilliseconds = 0
+    GameplayProgress.waitingControlsSlideProgress = 0
     currentPlayerScale = 1
     targetPlayerScale = 1
     bButtonHeldMilliseconds = 0
@@ -2419,6 +2422,20 @@ function playdate.update()
         )
     end
 
+    if BoatGameState == GameState.WAITING_FOR_CRANK then
+        GameplayProgress.waitingControlsSlideProgress = math.min(
+            1,
+            GameplayProgress.waitingControlsSlideProgress
+                + elapsedMilliseconds / TUNING.WAITING_CONTROLS_SLIDE_DURATION_MS
+        )
+    elseif BoatGameState == GameState.ALIGNING_TO_CRANK then
+        GameplayProgress.waitingControlsSlideProgress = math.max(
+            0,
+            GameplayProgress.waitingControlsSlideProgress
+                - elapsedMilliseconds / TUNING.WAITING_CONTROLS_SLIDE_DURATION_MS
+        )
+    end
+
     if BoatGameState == GameState.UPGRADE_MENU then
         stopBoatEngineSound()
         stopWaterFlowSound()
@@ -2760,6 +2777,13 @@ function playdate.update()
         )
         pdg.sprite.update()
         drawHud()
+        WaitingControlsUI.draw(
+            isOtherSideMode(),
+            isAbilityPurchased(isOtherSideMode() and "horn" or "dash"),
+            isAbilityPurchased("growth"),
+            TUNING,
+            GameplayProgress.waitingControlsSlideProgress
+        )
         pd.ui.crankIndicator:draw()
 
         if pd.isCrankDocked() == false
@@ -2806,6 +2830,13 @@ function playdate.update()
         )
         pdg.sprite.update()
         drawHud()
+        WaitingControlsUI.draw(
+            isOtherSideMode(),
+            isAbilityPurchased(isOtherSideMode() and "horn" or "dash"),
+            isAbilityPurchased("growth"),
+            TUNING,
+            GameplayProgress.waitingControlsSlideProgress
+        )
 
         if presentationElapsedMilliseconds >= TUNING.START_ROTATION_DURATION_MS then
             beginGameplay()
