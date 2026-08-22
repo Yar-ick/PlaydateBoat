@@ -530,7 +530,11 @@ local menuVesselSwap = {
 }
 local launchStartX = 0
 local launchStartY = 0
-GameplayProgress = { suspended = true, impulseCharge = 0 }
+GameplayProgress = {
+    suspended = true,
+    impulseCharge = 0,
+    hornActiveRemainingMilliseconds = 0
+}
 
 local scoreTimer = pd.timer.new(1000, function()
     if GameplayProgress.suspended == false
@@ -972,15 +976,25 @@ local function updatePlayerScale(elapsedMilliseconds)
 end
 
 local function updateDashCooldown(elapsedMilliseconds)
+    local isHornMode = isOtherSideMode()
     local uiDrainDurationMilliseconds = TUNING.DASH_UI_DRAIN_DURATION_MS
 
-    if isOtherSideMode() then
+    if isHornMode then
         local hornLevel = math.max(0, AbilityProgression.getLevel("horn", true))
         uiDrainDurationMilliseconds =
             TUNING.OTHER_SIDE_HORN_DURATION_MS_BY_LEVEL[hornLevel + 1]
     end
 
-    if dashCooldownRemainingMilliseconds > 0 then
+    if isHornMode and GameplayProgress.hornActiveRemainingMilliseconds > 0 then
+        GameplayProgress.hornActiveRemainingMilliseconds = math.max(
+            0,
+            GameplayProgress.hornActiveRemainingMilliseconds - elapsedMilliseconds
+        )
+
+        if GameplayProgress.hornActiveRemainingMilliseconds == 0 then
+            dashCooldownRemainingMilliseconds = dashCooldownDurationMilliseconds
+        end
+    elseif dashCooldownRemainingMilliseconds > 0 then
         dashCooldownRemainingMilliseconds =
             math.max(0, dashCooldownRemainingMilliseconds - elapsedMilliseconds)
     end
@@ -995,10 +1009,15 @@ local function updateDashCooldown(elapsedMilliseconds)
             dashUiIsDraining = false
         end
     elseif dashCooldownRemainingMilliseconds > 0 then
-        local rechargeDurationMilliseconds = math.max(
-            1,
-            dashCooldownDurationMilliseconds - uiDrainDurationMilliseconds
-        )
+        local rechargeDurationMilliseconds = dashCooldownDurationMilliseconds
+
+        if isHornMode == false then
+            rechargeDurationMilliseconds = math.max(
+                1,
+                dashCooldownDurationMilliseconds - uiDrainDurationMilliseconds
+            )
+        end
+
         dashUiProgress = math.clamp(
             1 - dashCooldownRemainingMilliseconds / rechargeDurationMilliseconds,
             0,
@@ -1044,6 +1063,7 @@ local function startHorn()
     if isOtherSideMode() == false
         or isAbilityPurchased("horn") == false
         or dashCooldownRemainingMilliseconds > 0
+        or GameplayProgress.hornActiveRemainingMilliseconds > 0
     then
         return false
     end
@@ -1055,7 +1075,9 @@ local function startHorn()
     end
 
     dashCooldownDurationMilliseconds = getDashCooldownDuration()
-    dashCooldownRemainingMilliseconds = dashCooldownDurationMilliseconds
+    dashCooldownRemainingMilliseconds = 0
+    GameplayProgress.hornActiveRemainingMilliseconds =
+        TUNING.OTHER_SIDE_HORN_DURATION_MS_BY_LEVEL[hornLevel + 1]
     dashUiProgress = 1
     dashUiIsDraining = true
     return true
@@ -1740,7 +1762,8 @@ local function drawHud()
     if selectedUiMode == UI_MODE_OPTIONS[1] or selectedUiMode == UI_MODE_OPTIONS[3] then
         AbilityTopUI.draw(
             dashUiProgress,
-            dashCooldownRemainingMilliseconds <= 0,
+            dashCooldownRemainingMilliseconds <= 0
+                and GameplayProgress.hornActiveRemainingMilliseconds <= 0,
             isOtherSideMode() and GameplayProgress.impulseCharge or shrinkUiProgress,
             shieldHitsRemaining,
             isAbilityPurchased(isOtherSideMode() and "horn" or "dash"),
@@ -2026,6 +2049,7 @@ local function prepareNewRun()
     shrinkUiProgress = 0
     shrinkUiIsFilling = false
     GameplayProgress.impulseCharge = 0
+    GameplayProgress.hornActiveRemainingMilliseconds = 0
     currentPlayerScale = 1
     targetPlayerScale = 1
     bButtonHeldMilliseconds = 0
