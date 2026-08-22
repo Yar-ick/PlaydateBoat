@@ -6,6 +6,7 @@ local smallBoatImagetable = pdg.imagetable.new("images/Boat")
 local explosionImagetable = nil
 local hornSoundPlayer = nil
 local rockCollisionExplosionCallback = nil
+local impulseRockCollisionCallback = nil
 local boats = {}
 local explosions = {}
 local wakeLines = {}
@@ -19,6 +20,16 @@ local hornRadiusState = "idle"
 local hornRadiusElapsedMilliseconds = 0
 local hornCollapseStartRadius = 0
 local hornSequence = 0
+local impulseActive = false
+local impulseX = 0
+local impulseY = 0
+local impulseAngle = 0
+local impulseRadiusX = 0
+local impulseRadiusY = 0
+local impulseMaximumRadiusX = 0
+local impulseMaximumRadiusY = 0
+local impulseElapsedMilliseconds = 0
+local impulseHitBoats = {}
 local activeRockLimit = nil
 local spawnPending = false
 local running = false
@@ -176,6 +187,9 @@ local function deactivateBoat(boat)
     boat.needsPathReplan = false
     boat.path = nil
     boat.pathIndex = 1
+    boat.impulseVelocityX = 0
+    boat.impulseVelocityY = 0
+    boat.impulseRemainingMilliseconds = 0
     boat:setVisible(false)
 
     if boat.engineSoundPlayer ~= nil and boat.engineSoundPlayer:isPlaying() then
@@ -596,6 +610,9 @@ local function spawn(playerY, rocks, playerX, playerAngle)
     boat.needsPathReplan = false
     boat.path = nil
     boat.pathIndex = 1
+    boat.impulseVelocityX = 0
+    boat.impulseVelocityY = 0
+    boat.impulseRemainingMilliseconds = 0
     boat.movementAngle = 90
     boat.frameIndex = 12
     boat:setImage(smallBoatImagetable:getImage(12))
@@ -691,15 +708,146 @@ local function updateHorn(elapsedMilliseconds, playerX, playerY, playerAngle)
     end
 end
 
+local function isInsideOrientedEllipse(
+    x,
+    y,
+    halfWidth,
+    halfHeight,
+    centerX,
+    centerY,
+    angle,
+    radiusX,
+    radiusY
+)
+    local expandedRadiusX = radiusX + halfWidth
+    local expandedRadiusY = radiusY + halfHeight
+
+    if expandedRadiusX <= 0 or expandedRadiusY <= 0 then
+        return false
+    end
+
+    local localX, localY = toHornLocal(x - centerX, y - centerY, angle)
+    return localX * localX / (expandedRadiusX * expandedRadiusX)
+        + localY * localY / (expandedRadiusY * expandedRadiusY) <= 1
+end
+
+local function throwBoatFromImpulse(boat)
+    local directionX = boat.x - impulseX
+    local directionY = boat.y - impulseY
+    local directionLength = math.sqrt(
+        directionX * directionX + directionY * directionY
+    )
+
+    if directionLength < 0.001 then
+        directionX, directionY = getHornAxes(impulseAngle)
+        directionLength = 1
+    end
+
+    local force = tuning.OTHER_SIDE_IMPULSE_BOAT_FORCE
+    boat.impulseVelocityX = directionX / directionLength * force
+    boat.impulseVelocityY = directionY / directionLength * force
+    boat.impulseRemainingMilliseconds =
+        tuning.OTHER_SIDE_IMPULSE_BOAT_FORCE_DURATION_MS
+    boat.warned = true
+    boat.escapeToBottom = directionY >= 0
+    boat.path = nil
+    boat.pathIndex = 1
+    boat.needsPathReplan = false
+
+    local minimumY, maximumY = getNavigationBounds(boat)
+    local edgeInset = tuning.OTHER_SIDE_SMALL_BOAT_PATH_EDGE_INSET
+    boat.targetY = boat.escapeToBottom
+        and maximumY - edgeInset
+        or minimumY + edgeInset
+end
+
+local function updateImpulse(
+    elapsedMilliseconds,
+    playerX,
+    playerY,
+    playerAngle,
+    rocks
+)
+    if impulseActive == false then
+        return
+    end
+
+    impulseElapsedMilliseconds += elapsedMilliseconds
+    impulseX = playerX
+    impulseY = playerY
+    impulseAngle = playerAngle
+
+    local expandDuration = tuning.OTHER_SIDE_IMPULSE_EXPAND_DURATION_MS
+    local totalDuration = expandDuration + tuning.OTHER_SIDE_IMPULSE_HOLD_DURATION_MS
+
+    if impulseElapsedMilliseconds > totalDuration then
+        impulseActive = false
+        impulseRadiusX = 0
+        impulseRadiusY = 0
+        WakeLayer.markDirty()
+        return
+    end
+
+    local progress = smoothstep(impulseElapsedMilliseconds / expandDuration)
+    impulseRadiusX = impulseMaximumRadiusX * progress
+    impulseRadiusY = impulseMaximumRadiusY * progress
+
+    for index = 1, #rocks do
+        local rock = rocks[index]
+
+        if rock.active and isInsideOrientedEllipse(
+            rock.x,
+            rock.y,
+            rock.imageWidth / 2,
+            rock.imageHeight / 2,
+            impulseX,
+            impulseY,
+            impulseAngle,
+            impulseRadiusX,
+            impulseRadiusY
+        ) then
+            if impulseRockCollisionCallback ~= nil then
+                impulseRockCollisionCallback(rock)
+            end
+        end
+    end
+
+    for index = 1, #boats do
+        local boat = boats[index]
+
+        if boat.active
+            and impulseHitBoats[boat] ~= true
+            and isInsideOrientedEllipse(
+                boat.x,
+                boat.y,
+                boat.collisionWidth / 2,
+                boat.collisionHeight / 2,
+                impulseX,
+                impulseY,
+                impulseAngle,
+                impulseRadiusX,
+                impulseRadiusY
+            )
+        then
+            impulseHitBoats[boat] = true
+            throwBoatFromImpulse(boat)
+        end
+    end
+
+    WakeLayer.markDirty()
+end
+
 function OtherSide.initialize(
     gameplayTuning,
     sfxChannel,
     sharedExplosionImagetable,
-    onRockCollisionExplosion
+    onRockCollisionExplosion,
+    onImpulseRockCollision
 )
     tuning = gameplayTuning
     explosionImagetable = sharedExplosionImagetable
     rockCollisionExplosionCallback = onRockCollisionExplosion
+    impulseRockCollisionCallback = onImpulseRockCollision
     hornMaximumRadiusX = tuning.OTHER_SIDE_HORN_WARNING_RADIUS_X
     hornMaximumRadiusY = tuning.OTHER_SIDE_HORN_WARNING_RADIUS_Y
     hornSoundPlayer = pds.sampleplayer.new("sounds/ShipHorn")
@@ -722,6 +870,9 @@ function OtherSide.initialize(
         boat.needsPathReplan = false
         boat.path = nil
         boat.pathIndex = 1
+        boat.impulseVelocityX = 0
+        boat.impulseVelocityY = 0
+        boat.impulseRemainingMilliseconds = 0
         boat.engineSoundPlayer = pds.sampleplayer.new("sounds/BoatEngine")
         sfxChannel:addSource(boat.engineSoundPlayer)
         boat:setCollideRect(
@@ -784,6 +935,7 @@ function OtherSide.update(
     end
 
     updateHorn(elapsedMilliseconds, playerX, playerY, playerAngle)
+    updateImpulse(elapsedMilliseconds, playerX, playerY, playerAngle, rocks)
 
     for index = 1, #boats do
         local boat = boats[index]
@@ -818,11 +970,38 @@ function OtherSide.update(
             boat.velocityX += (targetVelocityX - boat.velocityX) * interpolation
             boat.velocityY += (targetVelocityY - boat.velocityY) * interpolation
 
+            local impulseVelocityX = 0
+            local impulseVelocityY = 0
+
+            if boat.impulseRemainingMilliseconds > 0 then
+                impulseVelocityX = boat.impulseVelocityX
+                impulseVelocityY = boat.impulseVelocityY
+                boat.impulseRemainingMilliseconds = math.max(
+                    0,
+                    boat.impulseRemainingMilliseconds - elapsedMilliseconds
+                )
+
+                local frameDurationMilliseconds <const> = 1000 / 30
+                local retention =
+                    tuning.OTHER_SIDE_IMPULSE_BOAT_FORCE_RETENTION_PER_FRAME
+                        ^ (elapsedMilliseconds / frameDurationMilliseconds)
+                boat.impulseVelocityX *= retention
+                boat.impulseVelocityY *= retention
+            end
+
             local minimumY, maximumY = getNavigationBounds(boat)
-            local x = boat.x + boat.velocityX
-            local y = math.max(minimumY, math.min(maximumY, boat.y + boat.velocityY))
+            local movementVelocityX = boat.velocityX + impulseVelocityX
+            local movementVelocityY = boat.velocityY + impulseVelocityY
+            local x = boat.x + movementVelocityX
+            local unclampedY = boat.y + movementVelocityY
+            local y = math.max(minimumY, math.min(maximumY, unclampedY))
+
+            if y ~= unclampedY then
+                boat.impulseVelocityY = 0
+            end
+
             local movementAngle = (
-                math.deg(math.atan2(boat.velocityY, boat.velocityX)) + 90
+                math.deg(math.atan2(movementVelocityY, movementVelocityX)) + 90
             ) % 360
             local frame = math.max(
                 1,
@@ -848,6 +1027,33 @@ function OtherSide.update(
     end
 end
 
+local function drawOrientedEllipse(
+    centerX,
+    centerY,
+    angle,
+    radiusX,
+    radiusY,
+    segmentCount
+)
+    local majorX, majorY, minorX, minorY = getHornAxes(angle)
+    local previousX = centerX + majorX * radiusX
+    local previousY = centerY + majorY * radiusX
+
+    for segmentIndex = 1, segmentCount do
+        local segmentAngle = segmentIndex * math.pi * 2 / segmentCount
+        local x = centerX
+            + majorX * math.cos(segmentAngle) * radiusX
+            + minorX * math.sin(segmentAngle) * radiusY
+        local y = centerY
+            + majorY * math.cos(segmentAngle) * radiusX
+            + minorY * math.sin(segmentAngle) * radiusY
+
+        pdg.drawLine(previousX, previousY, x, y)
+        previousX = x
+        previousY = y
+    end
+end
+
 function OtherSide.drawWakeLines(playerX, playerY, playerAngle)
     for index = 1, #wakeLines do
         local line = wakeLines[index]
@@ -869,24 +1075,26 @@ function OtherSide.drawWakeLines(playerX, playerY, playerAngle)
     if hornRadius > 0 then
         pdg.setLineWidth(tuning.OTHER_SIDE_HORN_RADIUS_LINE_WIDTH)
         local radiusX, radiusY = getCurrentHornRadii()
-        local majorX, majorY, minorX, minorY = getHornAxes(playerAngle)
-        local previousX = playerX + majorX * radiusX
-        local previousY = playerY + majorY * radiusX
+        drawOrientedEllipse(
+            playerX,
+            playerY,
+            playerAngle,
+            radiusX,
+            radiusY,
+            tuning.OTHER_SIDE_HORN_RADIUS_SEGMENT_COUNT
+        )
+    end
 
-        for segmentIndex = 1, tuning.OTHER_SIDE_HORN_RADIUS_SEGMENT_COUNT do
-            local angle = segmentIndex * math.pi * 2
-                / tuning.OTHER_SIDE_HORN_RADIUS_SEGMENT_COUNT
-            local x = playerX
-                + majorX * math.cos(angle) * radiusX
-                + minorX * math.sin(angle) * radiusY
-            local y = playerY
-                + majorY * math.cos(angle) * radiusX
-                + minorY * math.sin(angle) * radiusY
-
-            pdg.drawLine(previousX, previousY, x, y)
-            previousX = x
-            previousY = y
-        end
+    if impulseActive and impulseRadiusX > 0 and impulseRadiusY > 0 then
+        pdg.setLineWidth(tuning.OTHER_SIDE_IMPULSE_LINE_WIDTH)
+        drawOrientedEllipse(
+            impulseX,
+            impulseY,
+            impulseAngle,
+            impulseRadiusX,
+            impulseRadiusY,
+            tuning.OTHER_SIDE_IMPULSE_SEGMENT_COUNT
+        )
     end
 end
 
@@ -913,14 +1121,47 @@ function OtherSide.soundHorn(playerX, playerY, playerAngle, hornLevel)
 
     hornSoundPlayer:setOffset(0)
     hornSoundPlayer:setVolume(tuning.OTHER_SIDE_HORN_VOLUME)
-    hornSoundPlayer:play()
+    hornSoundPlayer:play(0)
     hornSequence += 1
-    hornRemainingMilliseconds = tuning.OTHER_SIDE_HORN_DURATION_MS
+    hornRemainingMilliseconds = tuning.OTHER_SIDE_HORN_DURATION_MS_BY_LEVEL[level + 1]
     hornRadius = 0
     hornRadiusState = "expanding"
     hornRadiusElapsedMilliseconds = 0
     hornCollapseStartRadius = 0
 
+    return true
+end
+
+function OtherSide.startImpulse(playerX, playerY, playerAngle, abilityLevel)
+    if running == false or impulseActive then
+        return false
+    end
+
+    local level = math.max(
+        0,
+        math.min(
+            tuning.MAX_ABILITY_UPGRADE_LEVEL,
+            math.floor(tonumber(abilityLevel) or 0)
+        )
+    )
+    local radiusMultiplier = tuning.OTHER_SIDE_IMPULSE_RADIUS_MULTIPLIER
+    impulseMaximumRadiusX = (
+        tuning.OTHER_SIDE_HORN_WARNING_RADIUS_X
+            + tuning.OTHER_SIDE_HORN_WARNING_RADIUS_X_PER_LEVEL * level
+    ) * radiusMultiplier
+    impulseMaximumRadiusY = (
+        tuning.OTHER_SIDE_HORN_WARNING_RADIUS_Y
+            + tuning.OTHER_SIDE_HORN_WARNING_RADIUS_Y_PER_LEVEL * level
+    ) * radiusMultiplier
+    impulseX = playerX
+    impulseY = playerY
+    impulseAngle = playerAngle
+    impulseRadiusX = 0
+    impulseRadiusY = 0
+    impulseElapsedMilliseconds = 0
+    impulseHitBoats = {}
+    impulseActive = true
+    WakeLayer.markDirty()
     return true
 end
 
@@ -969,6 +1210,12 @@ function OtherSide.rewind(displacement)
 
     updateExplosions(displacement)
     updateWakeLines(displacement, false)
+
+    if impulseActive then
+        impulseX += displacement
+        WakeLayer.markDirty()
+    end
+
     return remaining
 end
 
@@ -997,6 +1244,11 @@ function OtherSide.reset()
     spawnRemainingMilliseconds = 0
     activeRockLimit = nil
     spawnPending = false
+    impulseActive = false
+    impulseRadiusX = 0
+    impulseRadiusY = 0
+    impulseElapsedMilliseconds = 0
+    impulseHitBoats = {}
     OtherSide.stopSounds()
 
     for index = 1, #boats do

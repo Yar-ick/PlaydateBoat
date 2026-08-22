@@ -111,10 +111,12 @@ local startJourneySoundPlayer = pds.sampleplayer.new("sounds/StartJourney")
 local rampSoundPlayers = {
     takeoff = pds.sampleplayer.new("sounds/RampTakeoff"),
     landing = pds.sampleplayer.new("sounds/WaterLanding"),
-    success = pds.sampleplayer.new("sounds/AbilityUpgradeSuccess3")
+    success = pds.sampleplayer.new("sounds/AbilityUpgradeSuccess3"),
+    impulse = pds.sampleplayer.new("sounds/Impulse")
 }
 rampSoundPlayers.success:setRate(TUNING.RAMP_SUCCESS_SOUND_RATE)
 rampSoundPlayers.success:setVolume(TUNING.RAMP_SUCCESS_SOUND_VOLUME)
+rampSoundPlayers.impulse:setVolume(TUNING.OTHER_SIDE_IMPULSE_SOUND_VOLUME)
 local buyAbilitySoundPlayer = pds.sampleplayer.new("sounds/AbilityPurchaseSuccess")
 local noUpgradeSoundPlayer = pds.sampleplayer.new("sounds/NoUpgrade")
 local upgradeAbilitySoundPlayers = {
@@ -153,6 +155,7 @@ sfxChannel:addSource(startJourneySoundPlayer)
 sfxChannel:addSource(rampSoundPlayers.takeoff)
 sfxChannel:addSource(rampSoundPlayers.landing)
 sfxChannel:addSource(rampSoundPlayers.success)
+sfxChannel:addSource(rampSoundPlayers.impulse)
 sfxChannel:addSource(buyAbilitySoundPlayer)
 sfxChannel:addSource(noUpgradeSoundPlayer)
 
@@ -527,7 +530,7 @@ local menuVesselSwap = {
 }
 local launchStartX = 0
 local launchStartY = 0
-GameplayProgress = { suspended = true }
+GameplayProgress = { suspended = true, impulseCharge = 0 }
 
 local scoreTimer = pd.timer.new(1000, function()
     if GameplayProgress.suspended == false
@@ -810,13 +813,7 @@ local function onGrowthCollected()
         return
     end
 
-    shrinkDurationMilliseconds = TUNING.GROWTH_DURATION_MS_BY_LEVEL[
-        AbilityProgression.getLevel("growth", true) + 1
-    ]
-    targetPlayerScale = TUNING.OTHER_SIDE_GROWTH_SCALE
-    shrinkRemainingMilliseconds = shrinkDurationMilliseconds
-    shrinkUiProgress = 0
-    shrinkUiIsFilling = true
+    GameplayProgress.impulseCharge = 1
     playSoundOneShot(shrinkSoundPlayer)
 end
 
@@ -975,9 +972,13 @@ local function updatePlayerScale(elapsedMilliseconds)
 end
 
 local function updateDashCooldown(elapsedMilliseconds)
-    local uiDrainDurationMilliseconds = isOtherSideMode()
-        and TUNING.OTHER_SIDE_HORN_DURATION_MS
-        or TUNING.DASH_UI_DRAIN_DURATION_MS
+    local uiDrainDurationMilliseconds = TUNING.DASH_UI_DRAIN_DURATION_MS
+
+    if isOtherSideMode() then
+        local hornLevel = math.max(0, AbilityProgression.getLevel("horn", true))
+        uiDrainDurationMilliseconds =
+            TUNING.OTHER_SIDE_HORN_DURATION_MS_BY_LEVEL[hornLevel + 1]
+    end
 
     if dashCooldownRemainingMilliseconds > 0 then
         dashCooldownRemainingMilliseconds =
@@ -1057,6 +1058,30 @@ local function startHorn()
     dashCooldownRemainingMilliseconds = dashCooldownDurationMilliseconds
     dashUiProgress = 1
     dashUiIsDraining = true
+    return true
+end
+
+function GameplayProgress.startImpulse()
+    if isOtherSideMode() == false
+        or isAbilityPurchased("growth") == false
+        or GameplayProgress.impulseCharge <= 0
+    then
+        return false
+    end
+
+    local impulseLevel = math.max(0, AbilityProgression.getLevel("growth", true))
+
+    if OtherSide.startImpulse(
+        playerX,
+        playerY,
+        launchVisualAngle,
+        impulseLevel
+    ) == false then
+        return false
+    end
+
+    GameplayProgress.impulseCharge = 0
+    playSoundOneShot(rampSoundPlayers.impulse)
     return true
 end
 
@@ -1473,8 +1498,8 @@ local function drawDashChargeChevrons(currentVelocityAngle, drawWhiteBackground)
     end
 end
 
-local function drawShrinkProgressArc(currentVelocityAngle)
-    local progress = math.clamp(shrinkUiProgress, 0, 1)
+local function drawShrinkProgressArc(currentVelocityAngle, abilityProgress)
+    local progress = math.clamp(abilityProgress, 0, 1)
 
     if progress <= 0 then
         return
@@ -1565,6 +1590,9 @@ end
 local function drawDiegeticAbilities(currentVelocityAngle)
     local previousLineWidth = pdg.getLineWidth()
     local previousColor = pdg.getColor()
+    local secondaryAbilityProgress = isOtherSideMode()
+        and GameplayProgress.impulseCharge
+        or shrinkUiProgress
 
     pdg.setColor(pdg.kColorWhite)
 
@@ -1576,7 +1604,7 @@ local function drawDiegeticAbilities(currentVelocityAngle)
     if isAbilityPurchased(isOtherSideMode() and "growth" or "shrink") then
         -- The wider white line keeps the curved Shrink bar readable over the world.
         pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_BACKGROUND_LINE_WIDTH)
-        drawShrinkProgressArc(currentVelocityAngle)
+        drawShrinkProgressArc(currentVelocityAngle, secondaryAbilityProgress)
     end
 
     if isAbilityPurchased("shield") and shieldHitsRemaining > 0 then
@@ -1593,7 +1621,7 @@ local function drawDiegeticAbilities(currentVelocityAngle)
 
     if isAbilityPurchased(isOtherSideMode() and "growth" or "shrink") then
         pdg.setLineWidth(TUNING.DIEGETIC_SHRINK_ARC_LINE_WIDTH)
-        drawShrinkProgressArc(currentVelocityAngle)
+        drawShrinkProgressArc(currentVelocityAngle, secondaryAbilityProgress)
     end
 
     if isAbilityPurchased("shield") and shieldHitsRemaining > 0 then
@@ -1713,7 +1741,7 @@ local function drawHud()
         AbilityTopUI.draw(
             dashUiProgress,
             dashCooldownRemainingMilliseconds <= 0,
-            shrinkUiProgress,
+            isOtherSideMode() and GameplayProgress.impulseCharge or shrinkUiProgress,
             shieldHitsRemaining,
             isAbilityPurchased(isOtherSideMode() and "horn" or "dash"),
             isAbilityPurchased(isOtherSideMode() and "growth" or "shrink"),
@@ -1997,6 +2025,7 @@ local function prepareNewRun()
     shrinkDurationMilliseconds = nil
     shrinkUiProgress = 0
     shrinkUiIsFilling = false
+    GameplayProgress.impulseCharge = 0
     currentPlayerScale = 1
     targetPlayerScale = 1
     bButtonHeldMilliseconds = 0
@@ -2231,9 +2260,20 @@ local function smoothstep(progress)
 end
 
 Steamboat.initialize(TUNING, sfxChannel, destroyRock, explosionImagetable)
-OtherSide.initialize(TUNING, sfxChannel, explosionImagetable, function()
-    playSoundOneShot(boatExplosionSoundPlayer)
-end)
+OtherSide.initialize(
+    TUNING,
+    sfxChannel,
+    explosionImagetable,
+    function()
+        playSoundOneShot(boatExplosionSoundPlayer)
+    end,
+    function(rock)
+        if rock.active then
+            destroyRock(rock, false)
+            playerScore += TUNING.OTHER_SIDE_ROCK_SCORE
+        end
+    end
+)
 enterMainMenu()
 
 function GameplayProgress.pause()
@@ -2941,6 +2981,10 @@ function playdate.update()
 
     local crankPositionForVelocity = pd.getCrankPosition() - 90
     updateBButton(elapsedMilliseconds, crankPositionForVelocity)
+
+    if pd.buttonJustPressed(pd.kButtonA) then
+        GameplayProgress.startImpulse()
+    end
 
     local activePlayerVelocity = isOtherSideMode()
         and TUNING.OTHER_SIDE_PLAYER_VELOCITY

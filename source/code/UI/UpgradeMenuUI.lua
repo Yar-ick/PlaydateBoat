@@ -63,9 +63,9 @@ local otherSideAbilities = {
     },
     {
         type = "growth",
-        title = "GROWTH",
-        description = "Grow to clear more river rocks.",
-        upgradeDescription = "Upgrade: extend duration.",
+        title = "IMPULSE",
+        description = "Break rocks and push small boats.",
+        upgradeDescription = "Upgrade: increase radius.",
         image = images.growth,
         imageYOffset = 1
     },
