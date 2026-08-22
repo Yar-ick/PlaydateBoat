@@ -344,6 +344,36 @@ GameplayTuning = {
     OTHER_SIDE_IMPULSE_BOAT_FORCE_DURATION_MS = 550,
     OTHER_SIDE_IMPULSE_BOAT_FORCE_RETENTION_PER_FRAME = 0.90,
     OTHER_SIDE_IMPULSE_SOUND_VOLUME = 1.0,
+    OTHER_SIDE_IMPULSE_SCREEN_SHAKE_BY_LEVEL = {
+        {
+            DURATION_MS = 220,
+            HORIZONTAL_AMPLITUDE = 3,
+            VERTICAL_AMPLITUDE = 2,
+            FREQUENCY_HZ = 13,
+            DECAY_POWER = 1.5
+        },
+        {
+            DURATION_MS = 280,
+            HORIZONTAL_AMPLITUDE = 4,
+            VERTICAL_AMPLITUDE = 3,
+            FREQUENCY_HZ = 13,
+            DECAY_POWER = 1.45
+        },
+        {
+            DURATION_MS = 340,
+            HORIZONTAL_AMPLITUDE = 6,
+            VERTICAL_AMPLITUDE = 4,
+            FREQUENCY_HZ = 14,
+            DECAY_POWER = 1.4
+        },
+        {
+            DURATION_MS = 420,
+            HORIZONTAL_AMPLITUDE = 8,
+            VERTICAL_AMPLITUDE = 6,
+            FREQUENCY_HZ = 14,
+            DECAY_POWER = 1.35
+        }
+    },
     OTHER_SIDE_SMALL_BOAT_POOL_SIZE = 4,
     OTHER_SIDE_SMALL_BOAT_MINIMUM_INTERVAL_MS = 4500,
     OTHER_SIDE_SMALL_BOAT_MAXIMUM_INTERVAL_MS = 8000,

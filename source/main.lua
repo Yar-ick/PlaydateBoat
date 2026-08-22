@@ -1103,6 +1103,9 @@ function GameplayProgress.startImpulse()
     end
 
     GameplayProgress.impulseCharge = 0
+    ScreenShake.start(
+        TUNING.OTHER_SIDE_IMPULSE_SCREEN_SHAKE_BY_LEVEL[impulseLevel + 1]
+    )
     playSoundOneShot(rampSoundPlayers.impulse)
     return true
 end
