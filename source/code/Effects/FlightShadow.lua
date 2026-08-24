@@ -46,7 +46,7 @@ function FlightShadow.update(
         scale = boatScale * tuning.RAMP_FLIGHT_SHADOW_MAXIMUM_SCALE
         local halfHeight = tuning.RAMP_FLIGHT_SHADOW_HEIGHT * scale / 2
         y = math.min(
-            playerY + tuning.RAMP_FLIGHT_SHADOW_BASE_Y_OFFSET,
+            playerY + tuning.RAMP_FLIGHT_SHADOW_BASE_Y_OFFSET * boatScale,
             239 - halfHeight
         )
         WakeLayer.markDirty()
@@ -86,8 +86,10 @@ function FlightShadow.update(
             - (tuning.RAMP_FLIGHT_SHADOW_MAXIMUM_SCALE
                 - tuning.RAMP_FLIGHT_SHADOW_MINIMUM_SCALE) * heightProgress
     )
-    local yOffset = tuning.RAMP_FLIGHT_SHADOW_BASE_Y_OFFSET
-        + tuning.RAMP_FLIGHT_SHADOW_HEIGHT_Y_OFFSET * heightProgress
+    local yOffset = (
+        tuning.RAMP_FLIGHT_SHADOW_BASE_Y_OFFSET
+            + tuning.RAMP_FLIGHT_SHADOW_HEIGHT_Y_OFFSET * heightProgress
+    ) * boatScale
     local halfHeight = tuning.RAMP_FLIGHT_SHADOW_HEIGHT * scale / 2
     y = math.min(playerY + yOffset, 239 - halfHeight)
     WakeLayer.markDirty()
