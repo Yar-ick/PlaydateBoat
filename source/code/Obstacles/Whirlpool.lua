@@ -37,6 +37,20 @@ local function startAttractionSound()
     end
 end
 
+local function isVisible()
+    return state == "active"
+        and x + tuning.WHIRLPOOL_VISUAL_RADIUS >= 0
+        and x - (tuning.WHIRLPOOL_VISUAL_RADIUS / 2) <= 400
+end
+
+local function updateAttractionSound()
+    if isVisible() then
+        startAttractionSound()
+    else
+        stopSound(attractionSoundPlayer)
+    end
+end
+
 local function resetCapture()
     captureElapsedMilliseconds = 0
     capturing = false
@@ -47,7 +61,6 @@ local function stopAttraction()
     attracting = false
     fastEscapeElapsedMilliseconds = 0
     resetCapture()
-    stopSound(attractionSoundPlayer)
 end
 
 local function resetSpawnCountdown()
@@ -67,6 +80,7 @@ local function deactivate(resetCountdown)
     reservation.active = false
     escaped = false
     stopAttraction()
+    stopSound(attractionSoundPlayer)
 
     if resetCountdown then
         resetSpawnCountdown()
@@ -209,6 +223,7 @@ function Whirlpool.update(elapsedMilliseconds, worldDisplacement)
         return
     end
 
+    updateAttractionSound()
     WakeLayer.markDirty()
 end
 
@@ -229,10 +244,7 @@ function Whirlpool.getAttraction(
         return 0, 0
     end
 
-    local isVisible = x + tuning.WHIRLPOOL_VISUAL_RADIUS >= 0
-        and x - tuning.WHIRLPOOL_VISUAL_RADIUS <= 400
-
-    if isVisible == false then
+    if isVisible() == false then
         stopAttraction()
         return 0, 0
     end
@@ -248,7 +260,6 @@ function Whirlpool.getAttraction(
 
     if attracting == false then
         attracting = true
-        startAttractionSound()
     end
 
     local canEscape = distance <= tuning.WHIRLPOOL_ESCAPE_RADIUS
@@ -388,7 +399,7 @@ function Whirlpool.stopSounds()
 end
 
 function Whirlpool.resumeSounds()
-    if attracting then
+    if isVisible() then
         startAttractionSound()
     end
 end
