@@ -1,6 +1,7 @@
 local pdg <const> = playdate.graphics
 
 local images = {
+    background = pdg.image.new("images/UpgradeMenu"),
     abilityFrame = pdg.image.new("images/AbilityFrame"),
     selector = pdg.image.new("images/UpgradeAbilitySelector"),
     aButton = pdg.image.new("images/A_Button"),
@@ -99,7 +100,7 @@ function UpgradeMenuUI.getAbilities(isOtherSide)
     return isOtherSide and otherSideAbilities or regularAbilities
 end
 
-local upgradeNodeCenters <const> = { 125, 205, 285, 365 }
+local upgradeNodeCenters <const> = { 117, 197, 285, 365 }
 
 local function clamp01(value)
     return math.max(0, math.min(1, value))
@@ -122,89 +123,13 @@ local function drawFramedAbility(abilityImage, frameX, frameY, imageYOffset)
     )
 end
 
-local function drawPanel(x, y, width, height)
-    pdg.setColor(pdg.kColorBlack)
-    pdg.fillRect(x + 3, y + 3, width, height)
-    pdg.setColor(pdg.kColorWhite)
-    pdg.fillRect(x, y, width, height)
-    pdg.setColor(pdg.kColorBlack)
-    pdg.drawRect(x, y, width, height)
-    pdg.drawRect(x + 2, y + 2, width - 4, height - 4)
-
-    -- Small cut-corner blocks keep the panel language pixel-art rather than
-    -- looking like an anti-aliased modern UI card.
-    pdg.fillRect(x, y, 5, 2)
-    pdg.fillRect(x, y, 2, 5)
-    pdg.fillRect(x + width - 5, y, 5, 2)
-    pdg.fillRect(x + width - 2, y, 2, 5)
-    pdg.fillRect(x, y + height - 2, 5, 2)
-    pdg.fillRect(x, y + height - 5, 2, 5)
-    pdg.fillRect(x + width - 5, y + height - 2, 5, 2)
-    pdg.fillRect(x + width - 2, y + height - 5, 2, 5)
-end
-
-local function drawWorkshopTexture(yOffset)
-    pdg.setColor(pdg.kColorBlack)
-
-    -- Sparse one-pixel plank marks stay in the gutters behind the solid panels.
-    -- The alternating phase avoids a rigid checkerboard while remaining 1-bit.
-    for y = yOffset + 11, yOffset + 229, 7 do
-        local phase = math.floor((y - yOffset) / 7) % 2 * 5
-
-        for x = 11 + phase, 389, 13 do
-            pdg.fillRect(x, y, 4, 1)
-        end
-    end
-end
-
-local function drawScrew(x, y)
-    pdg.setColor(pdg.kColorWhite)
-    pdg.fillCircleAtPoint(x, y, 3)
-    pdg.setColor(pdg.kColorBlack)
-    pdg.drawCircleAtPoint(x, y, 3)
-    pdg.drawLine(x - 1, y - 1, x + 1, y + 1)
-end
-
-local function drawWorkshopBackground(yOffset)
-    pdg.setColor(pdg.kColorWhite)
-    pdg.fillRect(0, yOffset, 400, 240)
-    drawWorkshopTexture(yOffset)
-    pdg.setColor(pdg.kColorBlack)
-    pdg.drawRect(3, yOffset + 3, 394, 234)
-    pdg.drawRect(7, yOffset + 7, 386, 226)
-
-    drawPanel(14, yOffset + 16, 76, 176)
-    drawPanel(100, yOffset + 16, 286, 176)
-    drawPanel(14, yOffset + 198, 372, 33)
-
-    -- Crisp workshop separators and rivets. Every primitive is strictly 1-bit.
-    pdg.drawLine(103, yOffset + 65, 383, yOffset + 65)
-    pdg.drawLine(103, yOffset + 110, 383, yOffset + 110)
-    pdg.drawLine(103, yOffset + 157, 383, yOffset + 157)
-    -- The coin counter is engraved into the header instead of floating above it.
-    pdg.drawLine(304, yOffset + 19, 304, yOffset + 62)
-    -- A small empty tool rail gives the header workshop character without
-    -- putting texture behind any ability title.
-    pdg.drawLine(244, yOffset + 27, 294, yOffset + 27)
-    pdg.drawLine(244, yOffset + 53, 294, yOffset + 53)
-    for x = 248, 292, 11 do
-        pdg.fillRect(x, yOffset + 25, 2, 5)
-        pdg.fillRect(x, yOffset + 51, 2, 5)
-    end
-    drawScrew(22, yOffset + 24)
-    drawScrew(82, yOffset + 184)
-    drawScrew(108, yOffset + 24)
-    drawScrew(378, yOffset + 184)
-    drawScrew(378, yOffset + 223)
-end
-
 local function drawButtonPrompt(buttonImage, label, x, y)
     buttonImage:draw(x, y)
     pdg.drawText(label, x + 30, y + 3)
 end
 
 local function drawUpgradeTrack(level, tuning, yOffset)
-    local centerY = yOffset + 133
+    local centerY = yOffset + 129
     local effect = UpgradeMenuUI.upgradeEffect
 
     pdg.setColor(pdg.kColorBlack)
@@ -267,7 +192,7 @@ local function drawUpgradeEffect(yOffset, tuning)
     end
 
     local centerX = upgradeNodeCenters[effect.nodeIndex]
-    local centerY = yOffset + 133
+    local centerY = yOffset + 129
     local animationElapsedMilliseconds = effect.elapsedMilliseconds
         - effect.contractionDurationMilliseconds
 
@@ -391,12 +316,13 @@ function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tun
     local level = levels[ability.type]
 
     local previousColor = pdg.getColor()
-    drawWorkshopBackground(yOffset)
+    images.background:draw(0, yOffset)
+    pdg.setColor(pdg.kColorBlack)
 
     for index = 1, #abilities do
         local selectorAbility = abilities[index]
-        local frameX = 36
-        local frameY = yOffset + 27 + (index - 1) * 40
+        local frameX = 30
+        local frameY = yOffset + 22 + (index - 1) * 40
 
         drawFramedAbility(
             selectorAbility.image,
@@ -406,18 +332,18 @@ function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tun
         )
 
         if index == selectionIndex then
-            images.selector:draw(21, frameY + 9)
+            images.selector:draw(18, frameY + 9)
         end
     end
 
-    drawFramedAbility(ability.image, 112, yOffset + 26, ability.imageYOffset)
-    pdg.drawText(ability.title, 152, yOffset + 33)
-    pdg.drawText(ability.description, 112, yOffset + 70)
+    drawFramedAbility(ability.image, 106, yOffset + 22, ability.imageYOffset)
+    pdg.drawText(ability.title, 146, yOffset + 30)
+    pdg.drawText(ability.description, 106, yOffset + 70)
 
     if level == tuning.LOCKED_ABILITY_LEVEL then
-        pdg.drawText("Buy to unlock this ability.", 112, yOffset + 89)
+        pdg.drawText("Buy to unlock this ability.", 106, yOffset + 89)
     else
-        pdg.drawText(ability.upgradeDescription, 112, yOffset + 89)
+        pdg.drawText(ability.upgradeDescription, 106, yOffset + 89)
     end
 
     drawUpgradeTrack(level, tuning, yOffset)
@@ -441,19 +367,19 @@ function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tun
             actionLabel = "Upgrade"
         end
 
-        drawButtonPrompt(images.aButton, actionLabel, 112, yOffset + 163)
-        images.coin:getImage(UpgradeMenuUI.coinFrame):draw(225, yOffset + 165)
-        pdg.drawText(tostring(cost), 248, yOffset + 167)
+        drawButtonPrompt(images.aButton, actionLabel, 106, yOffset + 151)
+        images.coin:getImage(UpgradeMenuUI.coinFrame):draw(225, yOffset + 153)
+        pdg.drawText(tostring(cost), 248, yOffset + 155)
     else
-        pdg.drawText("Maximum level", 112, yOffset + 167)
+        pdg.drawText("Maximum level", 106, yOffset + 155)
     end
 
-    drawButtonPrompt(images.bButton, "Back", 22, yOffset + 202)
+    drawButtonPrompt(images.bButton, "Back", 21, yOffset + 198)
 
     local coinText = string.format("%03d", coins)
     local coinTextWidth = pdg.getTextSize(coinText)
-    images.coin:getImage(UpgradeMenuUI.coinFrame):draw(315, yOffset + 30)
-    pdg.drawText(coinText, 378 - coinTextWidth - 8, yOffset + 32)
+    images.coin:getImage(UpgradeMenuUI.coinFrame):draw(315, yOffset + 28)
+    pdg.drawText(coinText, 378 - coinTextWidth - 8, yOffset + 30)
 
     if message ~= nil then
         pdg.drawTextAligned(message, 264, yOffset + 208, kTextAlignment.center)
