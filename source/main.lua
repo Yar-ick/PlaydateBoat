@@ -26,6 +26,7 @@ import "code/Effects/ScreenShake"
 import "code/Effects/WakeLayer"
 import "code/Effects/FlightShadow"
 import "code/UI/AbilityTopUI"
+import "code/UI/FixedWidthNumber"
 import "code/UI/DifficultyMenuUI"
 import "code/UI/MainMenuHUDAnimation"
 import "code/UI/MenuCrankNavigation"
@@ -39,8 +40,7 @@ local pds <const> = playdate.sound
 local TUNING <const> = GameplayTuning
 
 local function isOtherSideMode()
-    return Difficulty.getSelectedMode().IS_OTHER_SIDE == true
-        and Difficulty.isSelectedModeUnlocked()
+    return Difficulty.isOtherSideMode()
 end
 
 local function getMainMenuBoatPosition(useOtherSideVessel)
@@ -1701,30 +1701,8 @@ local function clearRockExplosions()
     rockExplosions = {}
 end
 
-local fixedWidthDigitCellWidth = 0
-
-for digit = 0, 9 do
-    local digitWidth = pdg.getTextSize(tostring(digit))
-    fixedWidthDigitCellWidth = math.max(fixedWidthDigitCellWidth, digitWidth)
-end
-
-local function getFixedWidthNumberWidth(numberText)
-    return string.len(numberText) * (fixedWidthDigitCellWidth + 1)
-end
-
-local function drawFixedWidthNumber(numberText, x, y)
-    local digitCenterX = x + math.floor(fixedWidthDigitCellWidth / 2)
-
-    for digitIndex = 1, string.len(numberText) do
-        pdg.drawTextAligned(
-            string.sub(numberText, digitIndex, digitIndex),
-            digitCenterX,
-            y,
-            kTextAlignment.center
-        )
-        digitCenterX += fixedWidthDigitCellWidth + 1
-    end
-end
+local hudScoreNumber = FixedWidthNumber.new(7)
+local hudCoinNumber = FixedWidthNumber.new(3)
 
 local function updateSpeedometerNeedle(dashSpeed)
     local worldSpeedProgress = math.clamp(
@@ -1750,6 +1728,7 @@ local function updateSpeedometerNeedle(dashSpeed)
 end
 
 local function drawHud()
+    local otherSideMode = isOtherSideMode()
     local easedHudProgress = hudSlideProgress * hudSlideProgress * (3 - 2 * hudSlideProgress)
     local hiddenHudProgress = 1 - easedHudProgress
     local leftHudOffsetX = math.floor(TUNING.HUD_LEFT_HIDDEN_OFFSET_X * hiddenHudProgress + 0.5)
@@ -1771,48 +1750,33 @@ local function drawHud()
             dashUiProgress,
             dashCooldownRemainingMilliseconds <= 0
                 and GameplayProgress.hornActiveRemainingMilliseconds <= 0,
-            isOtherSideMode() and GameplayProgress.impulseCharge or shrinkUiProgress,
+            otherSideMode and GameplayProgress.impulseCharge or shrinkUiProgress,
             shieldHitsRemaining,
-            isAbilityPurchased(isOtherSideMode() and "horn" or "dash"),
-            isAbilityPurchased(isOtherSideMode() and "growth" or "shrink"),
+            isAbilityPurchased(otherSideMode and "horn" or "dash"),
+            isAbilityPurchased(otherSideMode and "growth" or "shrink"),
             TUNING,
             leftHudOffsetX,
-            isOtherSideMode()
+            otherSideMode
         )
     end
 
-    local scoreText = tostring(playerScore)
-    local scoreLength = string.len(scoreText)
-    local emptyNumberDigits = 7 - scoreLength
-
-    for i = 1, emptyNumberDigits, 1 do
-        scoreText = "0" .. scoreText
-    end
-
-    local scoreTextWidth = getFixedWidthNumberWidth(scoreText)
-    local scoreX = 400 - scoreTextWidth - 2 + rightHudOffsetX
+    FixedWidthNumber.update(hudScoreNumber, playerScore)
+    local scoreX = 400 - hudScoreNumber.width - 2 + rightHudOffsetX
     local starImageWidth = starImage:getSize()
-    local starX = 400 - scoreTextWidth - starImageWidth - 5 + rightHudOffsetX
+    local starX = 400 - hudScoreNumber.width - starImageWidth - 5 + rightHudOffsetX
 
-    local coinText = tostring(AbilityProgression.getCoins(isOtherSideMode()))
-    emptyNumberDigits = 3 - string.len(coinText)
-
-    for i = 1, emptyNumberDigits, 1 do
-        coinText = "0" .. coinText
-    end
-
-    local coinTextWidth = getFixedWidthNumberWidth(coinText)
+    FixedWidthNumber.update(hudCoinNumber, AbilityProgression.getCoins(otherSideMode))
     local coinImage = coinImagetable:getImage(1)
     local coinImageWidth = coinImage:getSize()
-    local coinTextX = 400 - coinTextWidth - 2 + rightHudOffsetX
+    local coinTextX = 400 - hudCoinNumber.width - 2 + rightHudOffsetX
     local coinX = coinTextX - coinImageWidth - 3
     local previousColor = pdg.getColor()
 
     pdg.setColor(pdg.kColorBlack)
-    drawFixedWidthNumber(scoreText, scoreX, 6)
+    FixedWidthNumber.draw(hudScoreNumber, scoreX, 6)
     starImage:draw(starX, 2)
 
-    drawFixedWidthNumber(coinText, coinTextX, 27)
+    FixedWidthNumber.draw(hudCoinNumber, coinTextX, 27)
     coinImage:draw(coinX, 25)
     pdg.setColor(previousColor)
 
@@ -3245,4 +3209,6 @@ function playdate.update()
     ScreenShake.clearDrawOffset()
     drawHud()
     ScoreFlyEffect.draw()
+
+    pd.drawFPS(200, 0)
 end

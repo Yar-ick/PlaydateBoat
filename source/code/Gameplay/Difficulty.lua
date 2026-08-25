@@ -3,6 +3,7 @@ local highScores = {}
 local selectedModeIndex = 1
 local persistedModeId = nil
 local secretModeUnlocked = false
+local selectedModeIsOtherSide = false
 
 Difficulty = {}
 
@@ -28,8 +29,19 @@ local function isModeUnlocked(mode)
     return (highScores[mode.UNLOCK_MODE_ID] or 0) >= mode.UNLOCK_SCORE
 end
 
+local function refreshSelectedModeCache()
+    if tuning == nil then
+        selectedModeIsOtherSide = false
+        return
+    end
+
+    local mode = tuning.DIFFICULTY_MODES[selectedModeIndex]
+    selectedModeIsOtherSide = mode.IS_OTHER_SIDE == true and isModeUnlocked(mode)
+end
+
 function Difficulty.setSecretModeUnlocked(isUnlocked)
     secretModeUnlocked = isUnlocked == true
+    refreshSelectedModeCache()
 
     if secretModeUnlocked
         and tuning ~= nil
@@ -66,6 +78,7 @@ function Difficulty.initialize(savedProgress, gameplayTuning)
     end
 
     persistedModeId = tuning.DIFFICULTY_MODES[selectedModeIndex].ID
+    refreshSelectedModeCache()
 end
 
 function Difficulty.getSelectedMode()
@@ -84,9 +97,14 @@ function Difficulty.isSelectedModeUnlocked()
     return isModeUnlocked(Difficulty.getSelectedMode())
 end
 
+function Difficulty.isOtherSideMode()
+    return selectedModeIsOtherSide
+end
+
 function Difficulty.select(direction)
     selectedModeIndex = (selectedModeIndex - 1 + direction)
         % #tuning.DIFFICULTY_MODES + 1
+    refreshSelectedModeCache()
 
     if Difficulty.isSelectedModeUnlocked() then
         persistedModeId = Difficulty.getSelectedMode().ID

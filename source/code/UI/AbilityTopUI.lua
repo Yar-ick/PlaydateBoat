@@ -11,6 +11,23 @@ local shieldStackImages = {
     pdg.image.new("images/Shield2Stack")
 }
 
+local function makeFadedImage(image)
+    local width, height = image:getSize()
+    local fadedImage = pdg.image.new(width, height, pdg.kColorClear)
+
+    pdg.pushContext(fadedImage)
+    image:drawFaded(0, 0, 0.25, pdg.image.kDitherTypeBayer8x8)
+    pdg.popContext()
+    return fadedImage
+end
+
+local fadedAbilityImages = {
+    [dashImage] = makeFadedImage(dashImage),
+    [hornImage] = makeFadedImage(hornImage),
+    [shrinkImage] = makeFadedImage(shrinkImage),
+    [growthImage] = makeFadedImage(growthImage)
+}
+
 AbilityTopUI = {}
 
 local function drawFramedProgress(image, frameX, frameY, progress, canShowFull, imageYOffset)
@@ -26,7 +43,7 @@ local function drawFramedProgress(image, frameX, frameY, progress, canShowFull, 
     end
 
     abilityFrameImage:draw(frameX, frameY)
-    image:drawFaded(imageX, imageY, 0.25, pdg.image.kDitherTypeBayer8x8)
+    fadedAbilityImages[image]:draw(imageX, imageY)
 
     if filledHeight > 0 then
         pdg.setClipRect(imageX, imageY + imageHeight - filledHeight, imageWidth, filledHeight)

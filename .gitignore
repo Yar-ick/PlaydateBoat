@@ -23,6 +23,7 @@ builds/
 
 # Temp files
 tmp/
+tools/
 
 # Built Visual Studio Code Extensions
 *.vsix

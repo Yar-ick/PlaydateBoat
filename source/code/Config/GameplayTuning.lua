@@ -134,7 +134,7 @@ GameplayTuning = {
             TITLE = "CASUAL",
             DESCRIPTION_LINES = {
                 "Frequent abilities",
-                "Standard rewards",
+                "Normal speed",
                 "1 coin per pickup"
             },
             COIN_REWARD = 1,
@@ -158,7 +158,7 @@ GameplayTuning = {
             TITLE = "NORMAL",
             DESCRIPTION_LINES = {
                 "Fewer abilities",
-                "Better rewards",
+                "High speed",
                 "2 coins per pickup"
             },
             COIN_REWARD = 2,
@@ -182,7 +182,7 @@ GameplayTuning = {
             TITLE = "HARDCORE",
             DESCRIPTION_LINES = {
                 "Rare abilities",
-                "Highest rewards",
+                "Highest speed",
                 "3 coins per pickup"
             },
             COIN_REWARD = 3,

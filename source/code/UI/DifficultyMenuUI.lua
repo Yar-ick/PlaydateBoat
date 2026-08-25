@@ -1,74 +1,30 @@
 local pdg <const> = playdate.graphics
 
+local difficultyMenuImage = pdg.image.new("images/DifficultyMenu")
+local lockImage = pdg.image.new("images/LockIcon")
 local starImage = pdg.image.new("images/Star")
-local digitCellWidth = 0
-
-for digit = 0, 9 do
-    local digitWidth = pdg.getTextSize(tostring(digit))
-    digitCellWidth = math.max(digitCellWidth, digitWidth)
-end
+local lockImageWidth = lockImage:getSize()
+local highScoreNumber = FixedWidthNumber.new(7)
+local descriptionLineSpacing = 30
+local lockedDescriptionLineSpacing = 18
+local lockedIconYOffset = 82
+local lockedLabelYOffset = 118
+local lockedDescriptionYOffset = 140
 
 DifficultyMenuUI = {}
 
-local function drawPanel(x, y, width, height)
-    pdg.setColor(pdg.kColorBlack)
-    pdg.fillRect(x + 3, y + 3, width, height)
-    pdg.setColor(pdg.kColorWhite)
-    pdg.fillRect(x, y, width, height)
-    pdg.setColor(pdg.kColorBlack)
-    pdg.drawRect(x, y, width, height)
-    pdg.drawRect(x + 2, y + 2, width - 4, height - 4)
-
-    pdg.fillRect(x, y, 5, 2)
-    pdg.fillRect(x, y, 2, 5)
-    pdg.fillRect(x + width - 5, y, 5, 2)
-    pdg.fillRect(x + width - 2, y, 2, 5)
-    pdg.fillRect(x, y + height - 2, 5, 2)
-    pdg.fillRect(x, y + height - 5, 2, 5)
-    pdg.fillRect(x + width - 5, y + height - 2, 5, 2)
-    pdg.fillRect(x + width - 2, y + height - 5, 2, 5)
-end
-
-local function drawArrowButton(centerX, centerY, pointsRight)
-    pdg.setColor(pdg.kColorWhite)
-    pdg.fillCircleAtPoint(centerX, centerY, 13)
-    pdg.setColor(pdg.kColorBlack)
-    pdg.drawCircleAtPoint(centerX, centerY, 13)
-    pdg.drawCircleAtPoint(centerX, centerY, 10)
-
-    local direction = pointsRight and 1 or -1
-    pdg.drawLine(centerX - direction * 3, centerY - 5, centerX + direction * 3, centerY)
-    pdg.drawLine(centerX + direction * 3, centerY, centerX - direction * 3, centerY + 5)
-end
-
-local function drawLock(centerX, topY)
-    pdg.setColor(pdg.kColorBlack)
-    pdg.drawArc(centerX, topY + 6, 6, 180, 360)
-    pdg.fillRect(centerX - 8, topY + 6, 16, 13)
-    pdg.setColor(pdg.kColorWhite)
-    pdg.fillCircleAtPoint(centerX, topY + 12, 2)
-    pdg.fillRect(centerX - 1, topY + 12, 2, 4)
-end
-
 local function drawHighScore(centerX, y, score)
-    local scoreText = string.format("%07d", score)
-    local scoreWidth = string.len(scoreText) * (digitCellWidth + 1)
+    FixedWidthNumber.update(highScoreNumber, score)
     local starWidth, starHeight = starImage:getSize()
-    local groupWidth = starWidth + 4 + scoreWidth
+    local groupWidth = starWidth + 4 + highScoreNumber.width
     local startX = math.floor(centerX - groupWidth / 2)
-    local digitCenterX = startX + starWidth + 4 + math.floor(digitCellWidth / 2)
 
     starImage:draw(startX, y)
-
-    for digitIndex = 1, string.len(scoreText) do
-        pdg.drawTextAligned(
-            string.sub(scoreText, digitIndex, digitIndex),
-            digitCenterX,
-            y + math.floor((starHeight - 14) / 2),
-            kTextAlignment.center
-        )
-        digitCenterX += digitCellWidth + 1
-    end
+    FixedWidthNumber.draw(
+        highScoreNumber,
+        startX + starWidth + 4,
+        y + math.floor((starHeight - 14) / 2)
+    )
 end
 
 function DifficultyMenuUI.draw(mode, modeIndex, modeCount, highScore, isUnlocked, tuning, xOffset)
@@ -79,10 +35,10 @@ function DifficultyMenuUI.draw(mode, modeIndex, modeCount, highScore, isUnlocked
     local centerX = x + math.floor(width / 2)
     local previousColor = pdg.getColor()
 
-    drawPanel(x, y, width, height)
+    difficultyMenuImage:draw(x, y)
+    pdg.setColor(pdg.kColorBlack)
     drawHighScore(centerX, y + 14, highScore)
 
-    pdg.drawLine(x + 8, y + 48, x + width - 8, y + 48)
     local title = isUnlocked and mode.TITLE or mode.LOCKED_TITLE or mode.TITLE
     pdg.drawTextAligned(title, centerX, y + 58, kTextAlignment.center)
 
@@ -91,45 +47,43 @@ function DifficultyMenuUI.draw(mode, modeIndex, modeCount, highScore, isUnlocked
             pdg.drawTextAligned(
                 mode.DESCRIPTION_LINES[lineIndex],
                 centerX,
-                y + 88 + (lineIndex - 1) * 18,
+                y + 88 + (lineIndex - 1) * descriptionLineSpacing,
                 kTextAlignment.center
             )
         end
     elseif mode.LOCKED_DESCRIPTION_LINES ~= nil then
-        drawLock(centerX, y + 78)
+        lockImage:draw(math.floor(centerX - lockImageWidth / 2), y + lockedIconYOffset)
+        pdg.drawTextAligned("LOCKED", centerX, y + lockedLabelYOffset, kTextAlignment.center)
 
         for lineIndex = 1, #mode.LOCKED_DESCRIPTION_LINES do
             pdg.drawTextAligned(
                 mode.LOCKED_DESCRIPTION_LINES[lineIndex],
                 centerX,
-                y + 112 + (lineIndex - 1) * 18,
+                y + lockedDescriptionYOffset + (lineIndex - 1) * lockedDescriptionLineSpacing,
                 kTextAlignment.center
             )
         end
     else
-        drawLock(centerX, y + 84)
-        pdg.drawTextAligned("LOCKED", centerX, y + 108, kTextAlignment.center)
+        lockImage:draw(math.floor(centerX - lockImageWidth / 2), y + lockedIconYOffset)
+        pdg.drawTextAligned("LOCKED", centerX, y + lockedLabelYOffset, kTextAlignment.center)
         pdg.drawTextAligned(
             "Reach " .. tostring(mode.UNLOCK_SCORE),
             centerX,
-            y + 132,
+            y + lockedDescriptionYOffset,
             kTextAlignment.center
         )
         pdg.drawTextAligned(
             "in " .. mode.UNLOCK_MODE_TITLE .. " mode",
             centerX,
-            y + 150,
+            y + lockedDescriptionYOffset + lockedDescriptionLineSpacing,
             kTextAlignment.center
         )
     end
 
-    pdg.drawLine(x + 8, y + height - 48, x + width - 8, y + height - 48)
-    drawArrowButton(x + 24, y + height - 24, false)
-    drawArrowButton(x + width - 24, y + height - 24, true)
     pdg.drawTextAligned(
         tostring(modeIndex) .. " / " .. tostring(modeCount),
         centerX,
-        y + height - 31,
+        y + height - 34,
         kTextAlignment.center
     )
 

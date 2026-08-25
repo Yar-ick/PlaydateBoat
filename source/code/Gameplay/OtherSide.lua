@@ -209,6 +209,7 @@ local function deactivateBoat(boat)
     boat.warned = false
     boat.needsPathReplan = false
     boat.path = nil
+    boat.pathCount = 0
     boat.pathIndex = 1
     boat.impulseVelocityX = 0
     boat.impulseVelocityY = 0
@@ -390,27 +391,8 @@ local function isWarnedPlayerBlockingCell(boat, x, y, playerX, playerY)
         and math.abs(y - playerY) < clearanceY
 end
 
-local function makeGoalRows(preferredRow, rowCount)
-    local rows = {}
-
-    for offset = 0, rowCount - 1 do
-        local lowerRow = preferredRow - offset
-        local upperRow = preferredRow + offset
-
-        if lowerRow >= 1 then
-            rows[#rows + 1] = lowerRow
-        end
-
-        if offset > 0 and upperRow <= rowCount then
-            rows[#rows + 1] = upperRow
-        end
-    end
-
-    return rows
-end
-
-local function compressPath(nodes, originX, minimumY)
-    local waypoints = {}
+local function compressPath(nodes, originX, minimumY, waypoints)
+    local waypointCount = 0
     local columnWidth = tuning.OTHER_SIDE_SMALL_BOAT_PATH_COLUMN_WIDTH
     local rowHeight = tuning.OTHER_SIDE_SMALL_BOAT_PATH_ROW_HEIGHT
 
@@ -429,14 +411,20 @@ local function compressPath(nodes, originX, minimumY)
         end
 
         if shouldAdd then
-            waypoints[#waypoints + 1] = {
-                x = originX + (node.x - 1) * columnWidth,
-                y = minimumY + (node.y - 1) * rowHeight
-            }
+            waypointCount += 1
+            local waypoint = waypoints[waypointCount]
+
+            if waypoint == nil then
+                waypoint = {}
+                waypoints[waypointCount] = waypoint
+            end
+
+            waypoint.x = originX + (node.x - 1) * columnWidth
+            waypoint.y = minimumY + (node.y - 1) * rowHeight
         end
     end
 
-    return waypoints
+    return waypointCount
 end
 
 local function getNavigationGoalX(boat, playerX, playerAngle)
@@ -472,7 +460,7 @@ local function planNavigationPath(
     local goalX = getNavigationGoalX(boat, playerX, playerAngle)
     local columnCount = math.max(2, math.ceil((goalX - originX) / columnWidth) + 1)
     local rowCount = math.max(2, math.floor((maximumY - minimumY) / rowHeight) + 1)
-    local includedNodes = {}
+    local includedNodes = boat.pathIncludedNodes
 
     for row = 1, rowCount do
         local y = minimumY + (row - 1) * rowHeight
@@ -498,6 +486,12 @@ local function planNavigationPath(
             includedNodes[(row - 1) * columnCount + column] = isBlocked and 0 or 1
         end
     end
+
+    local nodeCount = rowCount * columnCount
+    for nodeIndex = nodeCount + 1, boat.pathIncludedNodeCount do
+        includedNodes[nodeIndex] = nil
+    end
+    boat.pathIncludedNodeCount = nodeCount
 
     local startRow = math.max(
         1,
@@ -531,15 +525,28 @@ local function planNavigationPath(
     local path = nil
     local selectedGoalRow = nil
 
-    for _, goalRow in ipairs(makeGoalRows(preferredRow, rowCount)) do
-        local goalIndex = (goalRow - 1) * columnCount + columnCount
-        local goalY = minimumY + (goalRow - 1) * rowHeight
-        local isOnEscapeSide = boat.warned == false
-            or (boat.escapeToBottom and goalY >= playerY)
-            or (boat.escapeToBottom == false and goalY <= playerY)
+    for offset = 0, rowCount - 1 do
+        for candidateIndex = 1, 2 do
+            local goalRow = candidateIndex == 1
+                and preferredRow - offset
+                or preferredRow + offset
+            local isDuplicate = candidateIndex == 2 and offset == 0
 
-        if isOnEscapeSide and includedNodes[goalIndex] == 1 then
-            selectedGoalRow = goalRow
+            if isDuplicate == false and goalRow >= 1 and goalRow <= rowCount then
+                local goalIndex = (goalRow - 1) * columnCount + columnCount
+                local goalY = minimumY + (goalRow - 1) * rowHeight
+                local isOnEscapeSide = boat.warned == false
+                    or (boat.escapeToBottom and goalY >= playerY)
+                    or (boat.escapeToBottom == false and goalY <= playerY)
+
+                if isOnEscapeSide and includedNodes[goalIndex] == 1 then
+                    selectedGoalRow = goalRow
+                    break
+                end
+            end
+        end
+
+        if selectedGoalRow ~= nil then
             break
         end
     end
@@ -553,7 +560,10 @@ local function planNavigationPath(
         end
     end
 
-    boat.path = path ~= nil and compressPath(path, originX, minimumY) or nil
+    boat.pathCount = path ~= nil
+        and compressPath(path, originX, minimumY, boat.pathWaypoints)
+        or 0
+    boat.path = boat.pathCount > 0 and boat.pathWaypoints or nil
     boat.pathIndex = 1
 end
 
@@ -562,7 +572,7 @@ local function shiftNavigationPath(boat, displacement)
         return
     end
 
-    for index = boat.pathIndex, #boat.path do
+    for index = boat.pathIndex, boat.pathCount do
         boat.path[index].x += displacement
     end
 end
@@ -570,7 +580,7 @@ end
 local function getNavigationTarget(boat)
     local waypointRadius = tuning.OTHER_SIDE_SMALL_BOAT_PATH_WAYPOINT_RADIUS
 
-    while boat.path ~= nil and boat.pathIndex <= #boat.path do
+    while boat.path ~= nil and boat.pathIndex <= boat.pathCount do
         local waypoint = boat.path[boat.pathIndex]
         local distanceX = waypoint.x - boat.x
         local distanceY = waypoint.y - boat.y
@@ -635,6 +645,7 @@ local function spawn(playerY, rocks, playerX, playerAngle)
     boat.wakeSpawnCounter = 0
     boat.needsPathReplan = false
     boat.path = nil
+    boat.pathCount = 0
     boat.pathIndex = 1
     boat.impulseVelocityX = 0
     boat.impulseVelocityY = 0
@@ -676,6 +687,7 @@ local function warnBoatsInHornRange(playerX, playerY, playerAngle)
                 boat.warned = true
                 boat.escapeToBottom = boat.y >= playerY
                 boat.path = nil
+                boat.pathCount = 0
                 boat.pathIndex = 1
                 boat.needsPathReplan = true
             end
@@ -777,6 +789,7 @@ local function throwBoatFromImpulse(boat)
     boat.warned = true
     boat.escapeToBottom = directionY >= 0
     boat.path = nil
+    boat.pathCount = 0
     boat.pathIndex = 1
     boat.needsPathReplan = false
 
@@ -895,7 +908,11 @@ function OtherSide.initialize(
         boat.frameIndex = 1
         boat.needsPathReplan = false
         boat.path = nil
+        boat.pathCount = 0
         boat.pathIndex = 1
+        boat.pathWaypoints = {}
+        boat.pathIncludedNodes = {}
+        boat.pathIncludedNodeCount = 0
         boat.impulseVelocityX = 0
         boat.impulseVelocityY = 0
         boat.impulseRemainingMilliseconds = 0
