@@ -1,18 +1,20 @@
 local pdg <const> = playdate.graphics
 local pds <const> = playdate.sound
 
+local whirlpoolImagetable = pdg.imagetable.new("images/Whirlpool")
 local tuning = nil
 local spawnConfig = nil
 local reservation = nil
 local objectGroups = nil
 local attractionSoundPlayer = nil
 local escapeSoundPlayer = nil
-local particles = {}
+local whirlpoolAnimation = nil
+local whirlpoolImageWidth = 0
+local whirlpoolImageHeight = 0
 local state = "disabled"
 local spawnRemainingMilliseconds = 0
 local x = 0
 local y = 0
-local animationElapsedMilliseconds = 0
 local fastEscapeElapsedMilliseconds = 0
 local attracting = false
 local escaped = false
@@ -39,8 +41,8 @@ end
 
 local function isVisible()
     return state == "active"
-        and x + tuning.WHIRLPOOL_VISUAL_RADIUS >= 0
-        and x - (tuning.WHIRLPOOL_VISUAL_RADIUS / 2) <= 400
+        and x + whirlpoolImageWidth / 2 >= 0
+        and x - whirlpoolImageWidth / 2 <= 400
 end
 
 local function updateAttractionSound()
@@ -147,7 +149,6 @@ local function trySpawn()
     reservation.x = x
     reservation.y = y
     reservation.active = true
-    animationElapsedMilliseconds = math.random(0, 2000)
     fastEscapeElapsedMilliseconds = 0
     attracting = false
     escaped = false
@@ -162,6 +163,12 @@ function Whirlpool.initialize(settings, sfxChannel, interactableGroups)
     escapeSoundPlayer = pds.sampleplayer.new("sounds/WhirlpoolEscape")
     sfxChannel:addSource(attractionSoundPlayer)
     sfxChannel:addSource(escapeSoundPlayer)
+    whirlpoolAnimation = pdg.animation.loop.new(
+        tuning.WHIRLPOOL_ANIMATION_FRAME_DELAY_MS,
+        whirlpoolImagetable,
+        true
+    )
+    whirlpoolImageWidth, whirlpoolImageHeight = whirlpoolImagetable:getImage(1):getSize()
 
     reservation = {
         active = false,
@@ -172,24 +179,6 @@ function Whirlpool.initialize(settings, sfxChannel, interactableGroups)
     }
     objectGroups[#objectGroups + 1] = { reservation }
 
-    for index = 1, tuning.WHIRLPOOL_PARTICLE_COUNT do
-        particles[index] = {
-            angleOffset = math.random() * math.pi * 2,
-            orbitRadius = math.random(
-                tuning.WHIRLPOOL_PARTICLE_MINIMUM_ORBIT_RADIUS,
-                tuning.WHIRLPOOL_PARTICLE_MAXIMUM_ORBIT_RADIUS
-            ),
-            angularSpeed = math.random(
-                tuning.WHIRLPOOL_PARTICLE_MINIMUM_SPEED_PERCENT,
-                tuning.WHIRLPOOL_PARTICLE_MAXIMUM_SPEED_PERCENT
-            ) / 100,
-            radius = math.random(
-                tuning.WHIRLPOOL_PARTICLE_MINIMUM_RADIUS,
-                tuning.WHIRLPOOL_PARTICLE_MAXIMUM_RADIUS
-            ),
-            pulseOffset = math.random() * math.pi * 2
-        }
-    end
 end
 
 function Whirlpool.beginRun(difficultySpawnConfig)
@@ -216,9 +205,8 @@ function Whirlpool.update(elapsedMilliseconds, worldDisplacement)
 
     x += worldDisplacement
     reservation.x = x
-    animationElapsedMilliseconds += elapsedMilliseconds
 
-    if x - tuning.WHIRLPOOL_VISUAL_RADIUS > 400 then
+    if x - whirlpoolImageWidth / 2 > 400 then
         deactivate(true)
         return
     end
@@ -347,50 +335,10 @@ function Whirlpool.draw()
         return
     end
 
-    local previousColor = pdg.getColor()
-    local previousLineWidth = pdg.getLineWidth()
-    local elapsedSeconds = animationElapsedMilliseconds / 1000
-
-    pdg.setColor(pdg.kColorBlack)
-    pdg.setLineWidth(1)
-
-    for ringIndex = 1, tuning.WHIRLPOOL_ARC_COUNT do
-        local radius = tuning.WHIRLPOOL_INNER_ARC_RADIUS
-            + (ringIndex - 1) * tuning.WHIRLPOOL_ARC_RADIUS_STEP
-        local startAngle = (
-            elapsedSeconds * tuning.WHIRLPOOL_ARC_ROTATION_DEGREES_PER_SECOND
-                + (ringIndex - 1) * tuning.WHIRLPOOL_ARC_ANGLE_OFFSET
-        ) % 360
-        pdg.drawArc(
-            x,
-            y,
-            radius,
-            startAngle,
-            startAngle + tuning.WHIRLPOOL_ARC_LENGTH_DEGREES
-        )
-    end
-
-    for index = 1, #particles do
-        local particle = particles[index]
-        local angle = particle.angleOffset
-            + elapsedSeconds * particle.angularSpeed * math.pi * 2
-        local radialPulse = math.sin(
-            elapsedSeconds * tuning.WHIRLPOOL_PARTICLE_PULSE_SPEED
-                + particle.pulseOffset
-        ) * tuning.WHIRLPOOL_PARTICLE_PULSE_DISTANCE
-        local orbitRadius = particle.orbitRadius + radialPulse
-        local particleX = x + math.cos(angle) * orbitRadius
-        local particleY = y + math.sin(angle) * orbitRadius
-            * tuning.WHIRLPOOL_PARTICLE_VERTICAL_SCALE
-
-        pdg.fillCircleAtPoint(particleX, particleY, particle.radius)
-    end
-
-    pdg.fillCircleAtPoint(x, y, tuning.WHIRLPOOL_CORE_RADIUS)
-    pdg.setColor(pdg.kColorWhite)
-    pdg.fillCircleAtPoint(x, y, math.max(1, tuning.WHIRLPOOL_CORE_RADIUS - 2))
-    pdg.setLineWidth(previousLineWidth)
-    pdg.setColor(previousColor)
+    whirlpoolAnimation:draw(
+        math.floor(x - whirlpoolImageWidth / 2 + 0.5),
+        math.floor(y - whirlpoolImageHeight / 2 + 0.5)
+    )
 end
 
 function Whirlpool.stopSounds()
@@ -416,7 +364,7 @@ function Whirlpool.rewind(displacement)
     reservation.x = x
     WakeLayer.markDirty()
 
-    if x + tuning.WHIRLPOOL_VISUAL_RADIUS < 0 then
+    if x + whirlpoolImageWidth / 2 < 0 then
         state = "disabled"
         reservation.active = false
         return 0
@@ -430,7 +378,6 @@ function Whirlpool.reset()
     spawnConfig = nil
     state = "disabled"
     spawnRemainingMilliseconds = 0
-    animationElapsedMilliseconds = 0
     fastEscapeElapsedMilliseconds = 0
     attracting = false
     escaped = false
