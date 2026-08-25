@@ -35,18 +35,12 @@ local function drawFramedProgress(image, frameX, frameY, progress, canShowFull, 
     end
 end
 
-local function drawShieldStorage(shieldHits, shrinkIsPurchased, tuning, xOffset)
+local function drawShieldStorage(shieldHits, firstShieldX, tuning, xOffset)
     if shieldHits <= 0 then
         return
     end
 
-    local missingShrinkOffset = 0
-
-    if shrinkIsPurchased == false then
-        missingShrinkOffset = tuning.TOP_UI_SHRINK_FRAME_X - tuning.TOP_UI_DASH_FRAME_X
-    end
-
-    local firstShieldX = tuning.TOP_UI_SHIELD_FIRST_X - missingShrinkOffset + xOffset
+    firstShieldX += xOffset
     local remainingShieldHits = math.min(shieldHits, tuning.MAX_SHIELD_HITS)
     local stackCount = math.ceil(remainingShieldHits / 3)
     local previousDrawMode = pdg.getImageDrawMode()
@@ -85,27 +79,33 @@ function AbilityTopUI.draw(
     xOffset = xOffset or 0
     local primaryImage = isOtherSide and hornImage or dashImage
     local scaleImage = isOtherSide and growthImage or shrinkImage
+    local abilitySpacing = tuning.TOP_UI_SHRINK_FRAME_X - tuning.TOP_UI_DASH_FRAME_X
+    local nextAbilityFrameX = tuning.TOP_UI_DASH_FRAME_X
+    local firstShieldX = tuning.TOP_UI_SHIELD_FIRST_X - abilitySpacing * 2
 
     if dashIsPurchased then
         drawFramedProgress(
             primaryImage,
-            tuning.TOP_UI_DASH_FRAME_X + xOffset,
+            nextAbilityFrameX + xOffset,
             tuning.TOP_UI_ABILITY_FRAME_Y,
             dashProgress,
             dashIsReady
         )
+        nextAbilityFrameX += abilitySpacing
+        firstShieldX += abilitySpacing
     end
 
     if shrinkIsPurchased then
         drawFramedProgress(
             scaleImage,
-            tuning.TOP_UI_SHRINK_FRAME_X + xOffset,
+            nextAbilityFrameX + xOffset,
             tuning.TOP_UI_ABILITY_FRAME_Y,
             shrinkProgress,
             true,
             isOtherSide and 1 or 0
         )
+        firstShieldX += abilitySpacing
     end
 
-    drawShieldStorage(shieldHits, shrinkIsPurchased, tuning, xOffset)
+    drawShieldStorage(shieldHits, firstShieldX, tuning, xOffset)
 end
