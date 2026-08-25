@@ -9,8 +9,9 @@ local rockCollisionExplosionCallback = nil
 local impulseRockCollisionCallback = nil
 local boats = {}
 local explosions = {}
-local wakeLines = {}
-local wakeLineCursor = 1
+local wakeLinePool = {}
+local activeWakeLines = {}
+local freeWakeLines = {}
 local spawnRemainingMilliseconds = 0
 local hornRemainingMilliseconds = 0
 local hornRadius = 0
@@ -59,16 +60,28 @@ local function getCurrentHornRadii()
 end
 
 local function clearWakeLines()
-    for index = 1, #wakeLines do
-        wakeLines[index].active = false
+    for index = 1, #activeWakeLines do
+        activeWakeLines[index] = nil
+    end
+
+    for index = 1, #wakeLinePool do
+        local line = wakeLinePool[index]
+        line.active = false
+        freeWakeLines[index] = line
     end
 
     WakeLayer.markDirty()
 end
 
 local function spawnWakeLine(engineX, engineY, wakeAngle)
-    local line = wakeLines[wakeLineCursor]
-    wakeLineCursor = wakeLineCursor % #wakeLines + 1
+    local freeLineCount = #freeWakeLines
+    if freeLineCount == 0 then
+        return false
+    end
+
+    local line = freeWakeLines[freeLineCount]
+    freeWakeLines[freeLineCount] = nil
+    activeWakeLines[#activeWakeLines + 1] = line
 
     local angle = wakeAngle + math.random(
         -tuning.OTHER_SIDE_SMALL_BOAT_WAKE_ANGLE_SPREAD_DEGREES,
@@ -98,28 +111,33 @@ local function spawnWakeLine(engineX, engineY, wakeAngle)
         tuning.OTHER_SIDE_SMALL_BOAT_WAKE_MINIMUM_LIFETIME_FRAMES,
         tuning.OTHER_SIDE_SMALL_BOAT_WAKE_MAXIMUM_LIFETIME_FRAMES
     )
+    return true
 end
 
 local function updateWakeLines(worldDisplacement, applyWakeVelocity)
-    for index = 1, #wakeLines do
-        local line = wakeLines[index]
+    local hadActiveLines = #activeWakeLines > 0
 
-        if line.active then
-            line.x += worldDisplacement
+    for index = #activeWakeLines, 1, -1 do
+        local line = activeWakeLines[index]
+        line.x += worldDisplacement
 
-            if applyWakeVelocity then
-                line.x += line.dx * line.speed
-                line.y += line.dy * line.speed
-            end
+        if applyWakeVelocity then
+            line.x += line.dx * line.speed
+            line.y += line.dy * line.speed
+        end
 
-            line.age += 1
-            if line.age >= line.lifetime then
-                line.active = false
-            end
+        line.age += 1
+        if line.age >= line.lifetime then
+            line.active = false
+            activeWakeLines[index] = activeWakeLines[#activeWakeLines]
+            activeWakeLines[#activeWakeLines] = nil
+            freeWakeLines[#freeWakeLines + 1] = line
         end
     end
 
-    WakeLayer.markDirty()
+    if hadActiveLines then
+        WakeLayer.markDirty()
+    end
 end
 
 local function emitWake(boat)
@@ -134,8 +152,13 @@ local function emitWake(boat)
     local engineX = boat.x + emitterOffset.x
     local engineY = boat.y + emitterOffset.y
 
+    local emittedLine = false
     for _ = 1, tuning.OTHER_SIDE_SMALL_BOAT_WAKE_SPAWN_COUNT do
-        spawnWakeLine(engineX, engineY, wakeAngle)
+        emittedLine = spawnWakeLine(engineX, engineY, wakeAngle) or emittedLine
+    end
+
+    if emittedLine then
+        WakeLayer.markDirty()
     end
 
     boat.wakeSpawnCounter = 0
@@ -218,8 +241,11 @@ local function updateBoatEngine(boat, currentWorldVelocity, maximumWorldVelocity
         tuning.ENGINE_MAX_RATE,
         rate * tuning.ENGINE_FAST_RATE_MULTIPLIER
     )
-    boat.engineSoundPlayer:setRate(rate)
-    boat.engineSoundPlayer:setVolume(tuning.OTHER_SIDE_SMALL_BOAT_ENGINE_VOLUME)
+    rate = math.floor(rate * 100 + 0.5) / 100
+    if rate ~= boat.engineSoundRate then
+        boat.engineSoundRate = rate
+        boat.engineSoundPlayer:setRate(rate)
+    end
 
     if boat.engineSoundPlayer:isPlaying() == false then
         boat.engineSoundPlayer:setOffset(0)
@@ -874,6 +900,8 @@ function OtherSide.initialize(
         boat.impulseVelocityY = 0
         boat.impulseRemainingMilliseconds = 0
         boat.engineSoundPlayer = pds.sampleplayer.new("sounds/BoatEngine")
+        boat.engineSoundPlayer:setVolume(tuning.OTHER_SIDE_SMALL_BOAT_ENGINE_VOLUME)
+        boat.engineSoundRate = nil
         sfxChannel:addSource(boat.engineSoundPlayer)
         boat:setCollideRect(
             imageWidth / 3,
@@ -888,7 +916,9 @@ function OtherSide.initialize(
     end
 
     for index = 1, tuning.OTHER_SIDE_SMALL_BOAT_WAKE_POOL_SIZE do
-        wakeLines[index] = { active = false }
+        local line = { active = false }
+        wakeLinePool[index] = line
+        freeWakeLines[index] = line
     end
 end
 
@@ -1012,8 +1042,11 @@ function OtherSide.update(
             )
 
             boat.movementAngle = movementAngle
-            boat.frameIndex = frame
-            boat:setImage(smallBoatImagetable:getImage(frame))
+            if frame ~= boat.frameIndex then
+                boat.frameIndex = frame
+                boat:setImage(smallBoatImagetable:getImage(frame))
+            end
+
             boat:moveTo(x, y)
 
             if handleRockCollision(boat, rocks) == false then
@@ -1055,21 +1088,21 @@ local function drawOrientedEllipse(
 end
 
 function OtherSide.drawWakeLines(playerX, playerY, playerAngle)
-    for index = 1, #wakeLines do
-        local line = wakeLines[index]
+    if #activeWakeLines > 0 then
+        pdg.setLineWidth(1)
+    end
 
-        if line.active then
-            local lifeProgress = line.age / line.lifetime
-            local lineLength = line.length * (1 - lifeProgress)
+    for index = 1, #activeWakeLines do
+        local line = activeWakeLines[index]
+        local lifeProgress = line.age / line.lifetime
+        local lineLength = line.length * (1 - lifeProgress)
 
-            pdg.setLineWidth(1)
-            pdg.drawLine(
-                line.x,
-                line.y,
-                line.x + line.dx * lineLength,
-                line.y + line.dy * lineLength
-            )
-        end
+        pdg.drawLine(
+            line.x,
+            line.y,
+            line.x + line.dx * lineLength,
+            line.y + line.dy * lineLength
+        )
     end
 
     if hornRadius > 0 then

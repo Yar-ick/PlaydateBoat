@@ -17,8 +17,10 @@ local yAmplitude = 0
 local yPeriodMilliseconds = 1
 local yPhase = 0
 local movementAngle = 90
-local wakeLines = {}
-local wakeLineCursor = 1
+local currentFrame = nil
+local wakeLinePool = {}
+local activeWakeLines = {}
+local freeWakeLines = {}
 local wakeSpawnCounter = 0
 local explosion = nil
 
@@ -47,8 +49,14 @@ local function startEngine()
 end
 
 local function clearWakeLines()
-    for index = 1, #wakeLines do
-        wakeLines[index].active = false
+    for index = 1, #activeWakeLines do
+        activeWakeLines[index] = nil
+    end
+
+    for index = 1, #wakeLinePool do
+        local line = wakeLinePool[index]
+        line.active = false
+        freeWakeLines[index] = line
     end
 
     wakeSpawnCounter = 0
@@ -110,8 +118,14 @@ local function startExplosion(x, y)
 end
 
 local function spawnWakeLine(engineX, engineY, wakeAngle)
-    local line = wakeLines[wakeLineCursor]
-    wakeLineCursor = wakeLineCursor % #wakeLines + 1
+    local freeLineCount = #freeWakeLines
+    if freeLineCount == 0 then
+        return false
+    end
+
+    local line = freeWakeLines[freeLineCount]
+    freeWakeLines[freeLineCount] = nil
+    activeWakeLines[#activeWakeLines + 1] = line
 
     local angle = wakeAngle + math.random(
         -tuning.STEAMBOAT_WAKE_ANGLE_SPREAD_DEGREES,
@@ -145,28 +159,33 @@ local function spawnWakeLine(engineX, engineY, wakeAngle)
         tuning.STEAMBOAT_WAKE_MINIMUM_LIFETIME_FRAMES,
         tuning.STEAMBOAT_WAKE_MAXIMUM_LIFETIME_FRAMES
     )
+    return true
 end
 
 local function updateWakeLines(worldDisplacement, applyWakeVelocity)
-    for index = 1, #wakeLines do
-        local line = wakeLines[index]
+    local hadActiveLines = #activeWakeLines > 0
 
-        if line.active then
-            line.x += worldDisplacement
+    for index = #activeWakeLines, 1, -1 do
+        local line = activeWakeLines[index]
+        line.x += worldDisplacement
 
-            if applyWakeVelocity then
-                line.x += line.dx * line.speed
-                line.y += line.dy * line.speed
-            end
+        if applyWakeVelocity then
+            line.x += line.dx * line.speed
+            line.y += line.dy * line.speed
+        end
 
-            line.age += 1
-            if line.age >= line.lifetime then
-                line.active = false
-            end
+        line.age += 1
+        if line.age >= line.lifetime then
+            line.active = false
+            activeWakeLines[index] = activeWakeLines[#activeWakeLines]
+            activeWakeLines[#activeWakeLines] = nil
+            freeWakeLines[#freeWakeLines + 1] = line
         end
     end
 
-    WakeLayer.markDirty()
+    if hadActiveLines then
+        WakeLayer.markDirty()
+    end
 end
 
 local function emitWake(frame)
@@ -180,8 +199,13 @@ local function emitWake(frame)
     local engineX = steamboatSprite.x + emitterOffset.x
     local engineY = steamboatSprite.y + emitterOffset.y
 
+    local emittedLine = false
     for _ = 1, tuning.STEAMBOAT_WAKE_SPAWN_COUNT do
-        spawnWakeLine(engineX, engineY, wakeAngle)
+        emittedLine = spawnWakeLine(engineX, engineY, wakeAngle) or emittedLine
+    end
+
+    if emittedLine then
+        WakeLayer.markDirty()
     end
 
     wakeSpawnCounter = 0
@@ -217,7 +241,8 @@ local function spawn()
         tuning.STEAMBOAT_MAXIMUM_BASE_Y - yAmplitude
     )
     movementAngle = 90
-    steamboatSprite:setImage(steamboatImagetable:getImage(12))
+    currentFrame = 12
+    steamboatSprite:setImage(steamboatImagetable:getImage(currentFrame))
     steamboatSprite:moveTo(
         tuning.STEAMBOAT_SPAWN_X,
         baseY + math.sin(yPhase) * yAmplitude
@@ -252,14 +277,24 @@ local function updateActive(elapsedMilliseconds, worldDisplacement, rocks)
         steamboatImagetable:getLength()
     )
 
-    steamboatSprite:setImage(steamboatImagetable:getImage(frame))
+    if frame ~= currentFrame then
+        currentFrame = frame
+        steamboatSprite:setImage(steamboatImagetable:getImage(frame))
+    end
+
     steamboatSprite:moveTo(x, y)
     emitWake(frame)
 
     for index = 1, #rocks do
         local rock = rocks[index]
 
-        if rock.active and steamboatSprite:alphaCollision(rock) then
+        if rock.active
+            and math.abs(x - rock.x)
+                < (steamboatSprite.imageWidth + rock.imageWidth) / 2
+            and math.abs(y - rock.y)
+                < (steamboatSprite.imageHeight + rock.imageHeight) / 2
+            and steamboatSprite:alphaCollision(rock)
+        then
             destroyRockCallback(rock)
         end
     end
@@ -295,7 +330,9 @@ function Steamboat.initialize(settings, sfxChannel, onDestroyRock, sharedExplosi
     steamboatSprite:add()
 
     for index = 1, tuning.STEAMBOAT_WAKE_POOL_SIZE do
-        wakeLines[index] = { active = false }
+        local line = { active = false }
+        wakeLinePool[index] = line
+        freeWakeLines[index] = line
     end
 end
 
@@ -369,26 +406,29 @@ function Steamboat.rewind(elapsedMilliseconds, displacement)
 end
 
 function Steamboat.drawWakeLines()
-    for index = 1, #wakeLines do
-        local line = wakeLines[index]
+    local currentLineWidth = nil
 
-        if line.active then
-            local lifeProgress = line.age / line.lifetime
-            local length = line.length * (1 - lifeProgress)
-            local width = line.width
+    for index = 1, #activeWakeLines do
+        local line = activeWakeLines[index]
+        local lifeProgress = line.age / line.lifetime
+        local length = line.length * (1 - lifeProgress)
+        local width = line.width
 
-            if lifeProgress > 0.65 then
-                width = 1
-            end
-
-            pdg.setLineWidth(width)
-            pdg.drawLine(
-                line.x,
-                line.y,
-                line.x + line.dx * length,
-                line.y + line.dy * length
-            )
+        if lifeProgress > 0.65 then
+            width = 1
         end
+
+        if width ~= currentLineWidth then
+            currentLineWidth = width
+            pdg.setLineWidth(width)
+        end
+
+        pdg.drawLine(
+            line.x,
+            line.y,
+            line.x + line.dx * length,
+            line.y + line.dy * length
+        )
     end
 end
 
@@ -411,6 +451,7 @@ function Steamboat.reset()
     state = "disabled"
     spawnRemainingMilliseconds = 0
     activeElapsedMilliseconds = 0
+    currentFrame = nil
     removeExplosion()
     clearWakeLines()
 
