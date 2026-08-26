@@ -3,6 +3,7 @@ local pdg <const> = playdate.graphics
 local difficultyMenuImage = pdg.image.new("images/DifficultyMenu")
 local lockImage = pdg.image.new("images/LockIcon")
 local starImage = pdg.image.new("images/Star")
+local modeTitleFont = pdg.getFont(pdg.font.kVariantBold)
 local lockImageWidth = lockImage:getSize()
 local highScoreNumber = FixedWidthNumber.new(7)
 local descriptionLineSpacing = 30
@@ -40,7 +41,10 @@ function DifficultyMenuUI.draw(mode, modeIndex, modeCount, highScore, isUnlocked
     drawHighScore(centerX, y + 14, highScore)
 
     local title = isUnlocked and mode.TITLE or mode.LOCKED_TITLE or mode.TITLE
+    local previousFont = pdg.getFont()
+    pdg.setFont(modeTitleFont)
     pdg.drawTextAligned(title, centerX, y + 58, kTextAlignment.center)
+    pdg.setFont(previousFont)
 
     if isUnlocked then
         for lineIndex = 1, #mode.DESCRIPTION_LINES do

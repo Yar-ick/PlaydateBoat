@@ -38,6 +38,7 @@ local pd <const> = playdate
 local pdg <const> = playdate.graphics
 local pds <const> = playdate.sound
 local TUNING <const> = GameplayTuning
+local mainMenuActionFont = pdg.getFont(pdg.font.kVariantBold)
 
 local function isOtherSideMode()
     return Difficulty.isOtherSideMode()
@@ -2636,6 +2637,8 @@ function playdate.update()
 
         pdg.sprite.update()
         mainMenuImages.hud:draw(rightHudOffsetX, 0)
+        local previousFont = pdg.getFont()
+        pdg.setFont(mainMenuActionFont)
         pdg.drawText(
             "Start",
             TUNING.MAIN_MENU_START_TEXT_X + rightHudOffsetX,
@@ -2646,6 +2649,7 @@ function playdate.update()
             TUNING.MAIN_MENU_UPGRADE_TEXT_X + rightHudOffsetX,
             TUNING.MAIN_MENU_UPGRADE_TEXT_Y
         )
+        pdg.setFont(previousFont)
 
         DifficultyMenuUI.draw(
             Difficulty.getSelectedMode(),

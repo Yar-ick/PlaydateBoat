@@ -1,4 +1,5 @@
 local pdg <const> = playdate.graphics
+local boldFont = pdg.getFont(pdg.font.kVariantBold)
 
 local images = {
     background = pdg.image.new("images/UpgradeMenu"),
@@ -123,9 +124,16 @@ local function drawFramedAbility(abilityImage, frameX, frameY, imageYOffset)
     )
 end
 
+local function drawBoldText(text, x, y)
+    local previousFont = pdg.getFont()
+    pdg.setFont(boldFont)
+    pdg.drawText(text, x, y)
+    pdg.setFont(previousFont)
+end
+
 local function drawButtonPrompt(buttonImage, label, x, y)
     buttonImage:draw(x, y)
-    pdg.drawText(label, x + 30, y + 3)
+    drawBoldText(label, x + 30, y + 4)
 end
 
 local function drawUpgradeTrack(level, tuning, yOffset)
@@ -337,7 +345,7 @@ function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tun
     end
 
     drawFramedAbility(ability.image, 106, yOffset + 22, ability.imageYOffset)
-    pdg.drawText(ability.title, 146, yOffset + 30)
+    drawBoldText(ability.title, 146, yOffset + 30)
     pdg.drawText(ability.description, 106, yOffset + 70)
 
     if level == tuning.LOCKED_ABILITY_LEVEL then
@@ -371,7 +379,7 @@ function UpgradeMenuUI.draw(yOffset, selectionIndex, levels, coins, message, tun
         images.coin:getImage(UpgradeMenuUI.coinFrame):draw(225, yOffset + 153)
         pdg.drawText(tostring(cost), 248, yOffset + 155)
     else
-        pdg.drawText("Maximum level", 106, yOffset + 155)
+        drawBoldText("Maximum level", 106, yOffset + 155)
     end
 
     drawButtonPrompt(images.bButton, "Back", 21, yOffset + 198)
