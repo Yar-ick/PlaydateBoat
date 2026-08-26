@@ -1462,11 +1462,83 @@ end
 LandingSplash.initialize(TUNING)
 WakeLayer.initialize(drawWakeLines, TUNING.WAKE_Z_INDEX)
 
+local function drawHornChargeArcs(
+    currentVelocityAngle,
+    visibleArcCount,
+    drawWhiteBackground
+)
+    local angleRadians = math.rad(currentVelocityAngle - 5)
+    local forwardX = math.sin(angleRadians)
+    local forwardY = -math.cos(angleRadians)
+    local rightX = math.cos(angleRadians)
+    local rightY = math.sin(angleRadians)
+    local halfLineLength = TUNING.OTHER_SIDE_DIEGETIC_HORN_LINE_LENGTH / 2
+    local lineWidth = drawWhiteBackground
+        and TUNING.OTHER_SIDE_DIEGETIC_HORN_BACKGROUND_LINE_WIDTH
+        or TUNING.OTHER_SIDE_DIEGETIC_HORN_LINE_WIDTH
+    local endRadius = math.floor(lineWidth / 2)
+    local arcSegmentCount = TUNING.OTHER_SIDE_DIEGETIC_HORN_CURVE_SEGMENT_COUNT
+
+    pdg.setLineWidth(lineWidth)
+
+    for arcIndex = 1, visibleArcCount do
+        local distance = TUNING.OTHER_SIDE_DIEGETIC_HORN_FRONT_DISTANCE
+            + (arcIndex - 1) * TUNING.OTHER_SIDE_DIEGETIC_HORN_LINE_SPACING
+        local previousX = nil
+        local previousY = nil
+        local startX = nil
+        local startY = nil
+        local endX = nil
+        local endY = nil
+
+        for segmentIndex = 0, arcSegmentCount do
+            local progress = segmentIndex / arcSegmentCount
+            local arcAngle = -math.pi / 2 + math.pi * progress
+            local forwardOffset = distance
+                + math.cos(arcAngle) * TUNING.OTHER_SIDE_DIEGETIC_HORN_CURVE_DEPTH
+            local rightOffset = math.sin(arcAngle) * halfLineLength
+            local x = playerX + forwardX * forwardOffset + rightX * rightOffset
+            local y = playerY + forwardY * forwardOffset + rightY * rightOffset
+
+            if previousX ~= nil then
+                pdg.drawLine(previousX, previousY, x, y)
+            else
+                startX = x
+                startY = y
+            end
+
+            previousX = x
+            previousY = y
+            endX = x
+            endY = y
+        end
+
+        pdg.fillCircleAtPoint(startX, startY, endRadius)
+        pdg.fillCircleAtPoint(endX, endY, endRadius)
+    end
+end
+
 local function drawDashChargeChevrons(currentVelocityAngle, drawWhiteBackground)
     local dashChargeProgress = 1
     local visibleChevronCount
+    local otherSideMode = isOtherSideMode()
 
-    if dashCooldownRemainingMilliseconds > 0 then
+    if otherSideMode then
+        dashChargeProgress = math.clamp(dashUiProgress, 0, 1)
+
+        if dashUiIsDraining then
+            visibleChevronCount = math.ceil(
+                dashChargeProgress * TUNING.DIEGETIC_DASH_CHEVRON_COUNT
+            )
+        elseif dashChargeProgress >= 1 then
+            visibleChevronCount = TUNING.DIEGETIC_DASH_CHEVRON_COUNT
+        else
+            visibleChevronCount = math.min(
+                TUNING.DIEGETIC_DASH_CHEVRON_COUNT - 1,
+                math.floor(dashChargeProgress * TUNING.DIEGETIC_DASH_CHEVRON_COUNT)
+            )
+        end
+    elseif dashCooldownRemainingMilliseconds > 0 then
         dashChargeProgress = 1
             - dashCooldownRemainingMilliseconds / dashCooldownDurationMilliseconds
         visibleChevronCount = math.min(
@@ -1479,6 +1551,15 @@ local function drawDashChargeChevrons(currentVelocityAngle, drawWhiteBackground)
     end
 
     if visibleChevronCount <= 0 then
+        return
+    end
+
+    if otherSideMode then
+        drawHornChargeArcs(
+            currentVelocityAngle,
+            visibleChevronCount,
+            drawWhiteBackground
+        )
         return
     end
 
@@ -1539,10 +1620,25 @@ local function drawShrinkProgressArc(currentVelocityAngle, abilityProgress)
     local forwardY = -math.cos(angleRadians)
     local rightX = math.cos(angleRadians)
     local rightY = math.sin(angleRadians)
+    local otherSideMode = isOtherSideMode()
     local radiusScale = 0.5
         + currentPlayerScale * BoatJump.getScale() * 0.5
-    local majorRadius = TUNING.DIEGETIC_SHRINK_ARC_MAJOR_RADIUS * radiusScale
-    local minorRadius = TUNING.DIEGETIC_SHRINK_ARC_MINOR_RADIUS * radiusScale
+    local majorRadius = (otherSideMode
+        and TUNING.OTHER_SIDE_DIEGETIC_IMPULSE_ARC_MAJOR_RADIUS
+        or TUNING.DIEGETIC_SHRINK_ARC_MAJOR_RADIUS) * radiusScale
+    local minorRadius = (otherSideMode
+        and TUNING.OTHER_SIDE_DIEGETIC_IMPULSE_ARC_MINOR_RADIUS
+        or TUNING.DIEGETIC_SHRINK_ARC_MINOR_RADIUS) * radiusScale
+    local centerX = playerX
+    local centerY = playerY
+
+    if otherSideMode then
+        centerX += forwardX * TUNING.OTHER_SIDE_DIEGETIC_IMPULSE_ARC_FORWARD_OFFSET
+            + rightX * TUNING.OTHER_SIDE_DIEGETIC_IMPULSE_ARC_RIGHT_OFFSET
+        centerY += forwardY * TUNING.OTHER_SIDE_DIEGETIC_IMPULSE_ARC_FORWARD_OFFSET
+            + rightY * TUNING.OTHER_SIDE_DIEGETIC_IMPULSE_ARC_RIGHT_OFFSET
+    end
+
     local segmentCount = TUNING.DIEGETIC_SHRINK_ARC_SEGMENT_COUNT
     local completedSegments = progress * segmentCount
     local endInset = math.rad(TUNING.DIEGETIC_SHRINK_ARC_END_INSET_DEGREES)
@@ -1560,10 +1656,10 @@ local function drawShrinkProgressArc(currentVelocityAngle, abilityProgress)
         local endRight = math.sin(endAngle) * minorRadius
 
         pdg.drawLine(
-            playerX + forwardX * startForward + rightX * startRight,
-            playerY + forwardY * startForward + rightY * startRight,
-            playerX + forwardX * endForward + rightX * endRight,
-            playerY + forwardY * endForward + rightY * endRight
+            centerX + forwardX * startForward + rightX * startRight,
+            centerY + forwardY * startForward + rightY * startRight,
+            centerX + forwardX * endForward + rightX * endRight,
+            centerY + forwardY * endForward + rightY * endRight
         )
     end
 end
@@ -1574,11 +1670,28 @@ local function drawShieldStorageArc(currentVelocityAngle, drawFilledSegments)
     local forwardY = -math.cos(angleRadians)
     local rightX = math.cos(angleRadians)
     local rightY = math.sin(angleRadians)
+    local otherSideMode = isOtherSideMode()
     local radiusScale = 0.5
         + currentPlayerScale * BoatJump.getScale() * 0.5
-    local majorRadius = TUNING.DIEGETIC_SHIELD_ARC_MAJOR_RADIUS * radiusScale
-    local minorRadius = TUNING.DIEGETIC_SHIELD_ARC_MINOR_RADIUS * radiusScale
-    local segmentCount = TUNING.DIEGETIC_SHIELD_ARC_SEGMENT_COUNT
+    local majorRadius = (otherSideMode
+        and TUNING.OTHER_SIDE_DIEGETIC_SHIELD_ARC_MAJOR_RADIUS
+        or TUNING.DIEGETIC_SHIELD_ARC_MAJOR_RADIUS) * radiusScale
+    local minorRadius = (otherSideMode
+        and TUNING.OTHER_SIDE_DIEGETIC_SHIELD_ARC_MINOR_RADIUS
+        or TUNING.DIEGETIC_SHIELD_ARC_MINOR_RADIUS) * radiusScale
+    local centerX = playerX
+    local centerY = playerY
+
+    if otherSideMode then
+        centerX += forwardX * TUNING.OTHER_SIDE_DIEGETIC_SHIELD_ARC_FORWARD_OFFSET
+            + rightX * TUNING.OTHER_SIDE_DIEGETIC_SHIELD_ARC_RIGHT_OFFSET
+        centerY += forwardY * TUNING.OTHER_SIDE_DIEGETIC_SHIELD_ARC_FORWARD_OFFSET
+            + rightY * TUNING.OTHER_SIDE_DIEGETIC_SHIELD_ARC_RIGHT_OFFSET
+    end
+
+    local segmentCount = otherSideMode
+        and TUNING.OTHER_SIDE_DIEGETIC_SHIELD_ARC_SEGMENT_COUNT
+        or TUNING.DIEGETIC_SHIELD_ARC_SEGMENT_COUNT
     local segmentsToDraw = segmentCount
     local endInset = math.rad(TUNING.DIEGETIC_SHIELD_ARC_END_INSET_DEGREES)
     local arcLength = math.pi - endInset * 2
@@ -1608,10 +1721,10 @@ local function drawShieldStorageArc(currentVelocityAngle, drawFilledSegments)
         local endRight = math.sin(endAngle) * minorRadius
 
         pdg.drawLine(
-            playerX + forwardX * startForward + rightX * startRight,
-            playerY + forwardY * startForward + rightY * startRight,
-            playerX + forwardX * endForward + rightX * endRight,
-            playerY + forwardY * endForward + rightY * endRight
+            centerX + forwardX * startForward + rightX * startRight,
+            centerY + forwardY * startForward + rightY * startRight,
+            centerX + forwardX * endForward + rightX * endRight,
+            centerY + forwardY * endForward + rightY * endRight
         )
     end
 end
