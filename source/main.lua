@@ -2037,6 +2037,10 @@ local function setWaterTransform(scrollX, centerY)
     waterSprites[2]:moveTo(waterScrollX - waterImageWidth, centerY)
 end
 
+local function getWaterVisualDisplacement(worldDisplacement)
+    return worldDisplacement * TUNING.WATER_BACKGROUND_VELOCITY_MULTIPLIER
+end
+
 local function hideGameplayWorld()
     clearWakeLines()
     ScoreFlyEffect.reset()
@@ -2526,7 +2530,7 @@ function playdate.update()
             math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
         )
         setWaterTransform(
-            waterScrollX + initialWorldDisplacement,
+            waterScrollX + getWaterVisualDisplacement(initialWorldDisplacement),
             TUNING.MAIN_MENU_WATER_CENTER_Y
         )
 
@@ -2628,7 +2632,7 @@ function playdate.update()
             math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
         )
         setWaterTransform(
-            waterScrollX + initialWorldDisplacement,
+            waterScrollX + getWaterVisualDisplacement(initialWorldDisplacement),
             TUNING.MAIN_MENU_WATER_CENTER_Y
         )
         updateMainMenuBoatFloat(elapsedMilliseconds)
@@ -2806,7 +2810,10 @@ function playdate.update()
         )
 
         mainMenuBackgroundSprite:moveTo(200, menuY)
-        setWaterTransform(waterScrollX + initialWorldDisplacement, waterY)
+        setWaterTransform(
+            waterScrollX + getWaterVisualDisplacement(initialWorldDisplacement),
+            waterY
+        )
         playerSprite:setImage(playerImagetable:getImage(launchFrameIndex))
         playerSprite:moveTo(playerX, playerY)
         updateWakeLines(
@@ -2834,7 +2841,7 @@ function playdate.update()
             math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
         )
         setWaterTransform(
-            waterScrollX + initialWorldDisplacement,
+            waterScrollX + getWaterVisualDisplacement(initialWorldDisplacement),
             TUNING.WATER_BACKGROUND_Y_OFFSET
         )
         waitingCrankMovement += math.abs(pd.getCrankChange())
@@ -2901,7 +2908,7 @@ function playdate.update()
         )
 
         setWaterTransform(
-            waterScrollX + initialWorldDisplacement,
+            waterScrollX + getWaterVisualDisplacement(initialWorldDisplacement),
             TUNING.WATER_BACKGROUND_Y_OFFSET
         )
         playerSprite:setImage(playerImagetable:getImage(playerFrameIndex))
@@ -2953,7 +2960,10 @@ function playdate.update()
             rewindDisplacement
         )
 
-        setWaterTransform(waterScrollX + rewindDisplacement, TUNING.WATER_BACKGROUND_Y_OFFSET)
+        setWaterTransform(
+            waterScrollX + getWaterVisualDisplacement(rewindDisplacement),
+            TUNING.WATER_BACKGROUND_Y_OFFSET
+        )
         ScreenShake.applyDrawOffset()
         pdg.sprite.update()
         updateExplosion()
@@ -2985,7 +2995,10 @@ function playdate.update()
         )
 
         mainMenuBackgroundSprite:moveTo(200, menuY)
-        setWaterTransform(waterScrollX + initialWorldDisplacement, waterY)
+        setWaterTransform(
+            waterScrollX + getWaterVisualDisplacement(initialWorldDisplacement),
+            waterY
+        )
         local menuBoatX, menuBoatY = getMainMenuBoatPosition(isOtherSideMode())
         playerX = menuBoatX
         playerY = menuY - TUNING.MAIN_MENU_BACKGROUND_CENTER_Y + menuBoatY
@@ -3019,9 +3032,10 @@ function playdate.update()
 
     -- Both tiles derive from one phase, so rounding and seam recycling cannot
     -- make them pause, separate, or briefly move in opposite directions.
-    waterScrollX = (waterScrollX + worldDisplacement) % waterImageWidth
-    waterSprites[1]:moveTo(waterScrollX, TUNING.WATER_BACKGROUND_Y_OFFSET)
-    waterSprites[2]:moveTo(waterScrollX - waterImageWidth, TUNING.WATER_BACKGROUND_Y_OFFSET)
+    setWaterTransform(
+        waterScrollX + getWaterVisualDisplacement(worldDisplacement),
+        TUNING.WATER_BACKGROUND_Y_OFFSET
+    )
 
     for i = 1, TUNING.MAX_ROCKS do
         local rock = rockSprites[i]
