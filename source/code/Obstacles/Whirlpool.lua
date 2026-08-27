@@ -1,14 +1,16 @@
 local pdg <const> = playdate.graphics
 local pds <const> = playdate.sound
 
-local whirlpoolImagetable = pdg.imagetable.new("images/Whirlpool")
+local whirlpoolImage = pdg.image.new("images/Whirlpool")
 local tuning = nil
 local spawnConfig = nil
 local reservation = nil
 local objectGroups = nil
 local attractionSoundPlayer = nil
 local escapeSoundPlayer = nil
-local whirlpoolAnimation = nil
+local whirlpoolRotationImages = {}
+local whirlpoolRotationAngle = 0
+local whirlpoolRotationFrame = 1
 local whirlpoolImageWidth = 0
 local whirlpoolImageHeight = 0
 local state = "disabled"
@@ -23,6 +25,37 @@ local capturing = false
 local captureComplete = false
 
 Whirlpool = {}
+
+local function cacheRotationImages()
+    local frameCount = math.max(1, math.floor(tuning.WHIRLPOOL_ROTATION_FRAME_COUNT))
+    local angleStep = 360 / frameCount
+
+    whirlpoolRotationImages[1] = whirlpoolImage
+
+    for frameIndex = 2, frameCount do
+        whirlpoolRotationImages[frameIndex] = whirlpoolImage:rotatedImage(
+            (frameIndex - 1) * angleStep
+        )
+    end
+end
+
+local function resetRotation()
+    whirlpoolRotationAngle = 0
+    whirlpoolRotationFrame = 1
+end
+
+local function updateRotation(elapsedMilliseconds)
+    local frameCount = #whirlpoolRotationImages
+    local angleStep = 360 / frameCount
+
+    whirlpoolRotationAngle = (
+        whirlpoolRotationAngle
+        - tuning.WHIRLPOOL_ROTATION_DEGREES_PER_SECOND * elapsedMilliseconds / 1000
+    ) % 360
+    whirlpoolRotationFrame = math.floor(
+        whirlpoolRotationAngle / angleStep + 0.5
+    ) % frameCount + 1
+end
 
 local function stopSound(soundPlayer)
     if soundPlayer ~= nil and soundPlayer:isPlaying() then
@@ -153,6 +186,7 @@ local function trySpawn()
     attracting = false
     escaped = false
     state = "active"
+    resetRotation()
     WakeLayer.markDirty()
 end
 
@@ -163,12 +197,8 @@ function Whirlpool.initialize(settings, sfxChannel, interactableGroups)
     escapeSoundPlayer = pds.sampleplayer.new("sounds/WhirlpoolEscape")
     sfxChannel:addSource(attractionSoundPlayer)
     sfxChannel:addSource(escapeSoundPlayer)
-    whirlpoolAnimation = pdg.animation.loop.new(
-        tuning.WHIRLPOOL_ANIMATION_FRAME_DELAY_MS,
-        whirlpoolImagetable,
-        true
-    )
-    whirlpoolImageWidth, whirlpoolImageHeight = whirlpoolImagetable:getImage(1):getSize()
+    cacheRotationImages()
+    whirlpoolImageWidth, whirlpoolImageHeight = whirlpoolImage:getSize()
 
     reservation = {
         active = false,
@@ -203,6 +233,7 @@ function Whirlpool.update(elapsedMilliseconds, worldDisplacement)
         return
     end
 
+    updateRotation(elapsedMilliseconds)
     x += worldDisplacement
     reservation.x = x
 
@@ -335,9 +366,9 @@ function Whirlpool.draw()
         return
     end
 
-    whirlpoolAnimation:draw(
-        math.floor(x - whirlpoolImageWidth / 2 + 0.5),
-        math.floor(y - whirlpoolImageHeight / 2 + 0.5)
+    whirlpoolRotationImages[whirlpoolRotationFrame]:drawCentered(
+        math.floor(x + 0.5),
+        math.floor(y + 0.5)
     )
 end
 
@@ -381,6 +412,7 @@ function Whirlpool.reset()
     fastEscapeElapsedMilliseconds = 0
     attracting = false
     escaped = false
+    resetRotation()
     resetCapture()
 
     if reservation ~= nil then
