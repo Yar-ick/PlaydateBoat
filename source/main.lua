@@ -536,7 +536,8 @@ GameplayProgress = {
     suspended = true,
     impulseCharge = 0,
     hornActiveRemainingMilliseconds = 0,
-    waitingControlsSlideProgress = 0
+    waitingControlsSlideProgress = 0,
+    waitingControlsExitStarted = false
 }
 
 local scoreTimer = pd.timer.new(1000, function()
@@ -2151,6 +2152,7 @@ local function prepareNewRun()
     GameplayProgress.impulseCharge = 0
     GameplayProgress.hornActiveRemainingMilliseconds = 0
     GameplayProgress.waitingControlsSlideProgress = 0
+    GameplayProgress.waitingControlsExitStarted = false
     currentPlayerScale = 1
     targetPlayerScale = 1
     bButtonHeldMilliseconds = 0
@@ -2308,6 +2310,7 @@ local function beginWaitingForCrank()
     presentationElapsedMilliseconds = 0
     hudSlideProgress = 0
     waitingCrankMovement = 0
+    GameplayProgress.waitingControlsExitStarted = false
     mainMenuBackgroundSprite:setVisible(false)
     setWaterTransform(waterScrollX, TUNING.WATER_BACKGROUND_Y_OFFSET)
     playerX = TUNING.GAMEPLAY_ENTRY_BOAT_X
@@ -2524,11 +2527,25 @@ function playdate.update()
                 + elapsedMilliseconds / TUNING.WAITING_CONTROLS_SLIDE_DURATION_MS
         )
     elseif BoatGameState == GameState.ALIGNING_TO_CRANK then
-        GameplayProgress.waitingControlsSlideProgress = math.max(
-            0,
-            GameplayProgress.waitingControlsSlideProgress
-                - elapsedMilliseconds / TUNING.WAITING_CONTROLS_SLIDE_DURATION_MS
-        )
+        if GameplayProgress.waitingControlsExitStarted == false then
+            GameplayProgress.waitingControlsSlideProgress = math.min(
+                1,
+                GameplayProgress.waitingControlsSlideProgress
+                    + elapsedMilliseconds / TUNING.WAITING_CONTROLS_SLIDE_DURATION_MS
+            )
+
+            if presentationElapsedMilliseconds >= TUNING.START_ROTATION_DURATION_MS
+                and GameplayProgress.waitingControlsSlideProgress >= 1
+            then
+                GameplayProgress.waitingControlsExitStarted = true
+            end
+        else
+            GameplayProgress.waitingControlsSlideProgress = math.max(
+                0,
+                GameplayProgress.waitingControlsSlideProgress
+                    - elapsedMilliseconds / TUNING.WAITING_CONTROLS_SLIDE_DURATION_MS
+            )
+        end
     end
 
     if BoatGameState == GameState.UPGRADE_MENU then
@@ -2939,7 +2956,9 @@ function playdate.update()
             GameplayProgress.waitingControlsSlideProgress
         )
 
-        if presentationElapsedMilliseconds >= TUNING.START_ROTATION_DURATION_MS then
+        if presentationElapsedMilliseconds >= TUNING.START_ROTATION_DURATION_MS
+            and GameplayProgress.waitingControlsSlideProgress <= 0
+        then
             beginGameplay()
         end
 
