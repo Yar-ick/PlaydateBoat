@@ -1928,7 +1928,18 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed)
                 and other.used == false
                 and playerSprite:alphaCollision(other)
             then
-                if BoatJump.start(takeoffSpeed, playerSpeedMode == 2) then
+                local launchVelocityX = (xVelocity + dashVelocityX)
+                        * TUNING.RAMP_JUMP_HORIZONTAL_SPEED_RETENTION
+                    - TUNING.RAMP_JUMP_LEFT_BOOST
+                local launchVelocityY = yVelocity + dashVelocityY
+
+                if BoatJump.start(
+                    takeoffSpeed,
+                    playerSpeedMode == 2,
+                    launchVelocityX,
+                    launchVelocityY,
+                    launchVisualAngle
+                ) then
                     Ramp.markUsed(other)
                     playSoundOneShot(rampSoundPlayers.takeoff)
                     xVelocity *= TUNING.RAMP_JUMP_HORIZONTAL_SPEED_RETENTION
@@ -3169,10 +3180,6 @@ function playdate.update()
         currentVelocityInterpolationSpeed = TUNING.OTHER_SIDE_VELOCITY_INTERPOLATION_SPEED
     end
 
-    if BoatJump.isAirborne() then
-        currentVelocityInterpolationSpeed = TUNING.RAMP_AIRBORNE_VELOCITY_INTERPOLATION_SPEED
-    end
-
     xVelocity += (targetXVelocity - xVelocity) * currentVelocityInterpolationSpeed
     yVelocity += (targetYVelocity - yVelocity) * currentVelocityInterpolationSpeed
 
@@ -3193,6 +3200,12 @@ function playdate.update()
     end
     local movementVelocityX = xVelocity + dashVelocityX + whirlpoolPullX
     local movementVelocityY = yVelocity + dashVelocityY + whirlpoolPullY
+
+    movementVelocityX, movementVelocityY = BoatJump.constrainTranslation(
+        movementVelocityX,
+        movementVelocityY
+    )
+
     local movementSpeed = math.sqrt(
         movementVelocityX * movementVelocityX + movementVelocityY * movementVelocityY
     )
