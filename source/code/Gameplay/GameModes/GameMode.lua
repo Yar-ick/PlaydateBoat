@@ -249,7 +249,14 @@ function GameMode:updateWorld(
 )
 end
 
-function GameMode:resolveCollision(other, playerSprite, shieldHitsRemaining)
+function GameMode:isPixelPerfectCollision(collision, playerSprite)
+    local other = collision and collision.other
+    return other ~= nil
+        and other.active == true
+        and playerSprite:alphaCollision(other)
+end
+
+function GameMode:resolveCollision(collision, playerSprite, shieldHitsRemaining)
     return nil, shieldHitsRemaining
 end
 

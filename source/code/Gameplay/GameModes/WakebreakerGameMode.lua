@@ -225,8 +225,10 @@ function WakebreakerGameMode:getWhirlpoolAttraction(
     )
 end
 
-function WakebreakerGameMode:resolveCollision(other, playerSprite, shieldHitsRemaining)
-    if other.objectType == "rock" and playerSprite:alphaCollision(other) then
+function WakebreakerGameMode:resolveCollision(collision, playerSprite, shieldHitsRemaining)
+    local other = collision.other
+
+    if other.objectType == "rock" and self:isPixelPerfectCollision(collision, playerSprite) then
         if shieldHitsRemaining > 0 then
             return "destroyRock", shieldHitsRemaining - 1
         end
@@ -234,7 +236,9 @@ function WakebreakerGameMode:resolveCollision(other, playerSprite, shieldHitsRem
         return "crash", shieldHitsRemaining
     end
 
-    if other.objectType == "steamboat" and playerSprite:alphaCollision(other) then
+    if other.objectType == "steamboat"
+        and self:isPixelPerfectCollision(collision, playerSprite)
+    then
         if shieldHitsRemaining > 0 and Steamboat.explode() then
             return "explodeSteamboat", 0
         end

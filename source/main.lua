@@ -1769,12 +1769,13 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed)
     end
 
     for i = 1, length do
-        local other = collisions[i].other
+        local collision = collisions[i]
+        local other = collision.other
 
         if other ~= nil and other.active then
             local collisionAction
             collisionAction, shieldHitsRemaining = GameModes.active:resolveCollision(
-                other,
+                collision,
                 playerSprite,
                 shieldHitsRemaining
             )

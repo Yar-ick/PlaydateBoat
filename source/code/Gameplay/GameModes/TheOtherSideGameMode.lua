@@ -288,8 +288,10 @@ function TheOtherSideGameMode:consumeTouchedDecoration(
     end
 end
 
-function TheOtherSideGameMode:resolveCollision(other, playerSprite, shieldHitsRemaining)
-    if other.objectType == "rock" and playerSprite:alphaCollision(other) then
+function TheOtherSideGameMode:resolveCollision(collision, playerSprite, shieldHitsRemaining)
+    local other = collision.other
+
+    if other.objectType == "rock" and self:isPixelPerfectCollision(collision, playerSprite) then
         if other.isBig then
             local currentTimeMilliseconds = playdate.getCurrentTimeMilliseconds()
 
@@ -306,7 +308,9 @@ function TheOtherSideGameMode:resolveCollision(other, playerSprite, shieldHitsRe
         return "destroyRockForScore", shieldHitsRemaining
     end
 
-    if other.objectType == "otherSideSmallBoat" and playerSprite:alphaCollision(other) then
+    if other.objectType == "otherSideSmallBoat"
+        and self:isPixelPerfectCollision(collision, playerSprite)
+    then
         if shieldHitsRemaining > 0 then
             local remainingShields = shieldHitsRemaining - 1
 
