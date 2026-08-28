@@ -131,6 +131,10 @@ function GameMode:getVisualAngle(desiredAngle, previousAngle, elapsedMillisecond
     return desiredAngle
 end
 
+function GameMode:getDesiredAngleVelocity(velocityX, velocityY, impulseVelocityX, impulseVelocityY)
+    return velocityX + impulseVelocityX, velocityY + impulseVelocityY
+end
+
 function GameMode:getEngineInitialRate()
     return self.tuning.ENGINE_MIN_WORLD_RATE
 end
@@ -176,6 +180,10 @@ end
 
 function GameMode:getRockSpawnLimit()
     return self.tuning.MAX_ROCKS
+end
+
+function GameMode:getRockSpawnYRange(rock, minimumY, maximumY)
+    return minimumY, maximumY
 end
 
 function GameMode:getSecondaryArcConfiguration()
@@ -243,6 +251,16 @@ end
 
 function GameMode:resolveCollision(other, playerSprite, shieldHitsRemaining)
     return nil, shieldHitsRemaining
+end
+
+function GameMode:getBigRockBounceResponse(
+    rock,
+    playerX,
+    playerY,
+    velocityX,
+    velocityY
+)
+    return velocityX, velocityY, 0, 0, playerX, playerY
 end
 
 function GameMode:usesOtherSidePresentation()

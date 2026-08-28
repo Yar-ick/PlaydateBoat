@@ -177,6 +177,15 @@ function TheOtherSideGameMode:getVisualAngle(desiredAngle, previousAngle, elapse
     return math.normalizeAngle(previousAngle + rotationDelta * rotationInterpolation)
 end
 
+function TheOtherSideGameMode:getDesiredAngleVelocity(
+    velocityX,
+    velocityY,
+    impulseVelocityX,
+    impulseVelocityY
+)
+    return velocityX, velocityY
+end
+
 function TheOtherSideGameMode:getEngineInitialRate()
     return self.tuning.OTHER_SIDE_ENGINE_RATE
 end
@@ -221,6 +230,25 @@ function TheOtherSideGameMode:getRockSpawnLimit()
     return OtherSide.getRockSpawnLimit() or self.tuning.MAX_ROCKS
 end
 
+function TheOtherSideGameMode:getRockSpawnYRange(rock, minimumY, maximumY)
+    if rock.isBig == false then
+        return minimumY, maximumY
+    end
+
+    if rock.bigRockSpawnEdge == nil then
+        rock.bigRockSpawnEdge = math.random(2)
+    end
+
+    local edgeY
+    if rock.bigRockSpawnEdge == 1 then
+        edgeY = minimumY + self.tuning.OTHER_SIDE_BIG_ROCK_EDGE_INSET
+    else
+        edgeY = maximumY - self.tuning.OTHER_SIDE_BIG_ROCK_EDGE_INSET
+    end
+
+    return edgeY, edgeY
+end
+
 function TheOtherSideGameMode:updateWorld(
     elapsedMilliseconds,
     worldDisplacement,
@@ -262,6 +290,19 @@ end
 
 function TheOtherSideGameMode:resolveCollision(other, playerSprite, shieldHitsRemaining)
     if other.objectType == "rock" and playerSprite:alphaCollision(other) then
+        if other.isBig then
+            local currentTimeMilliseconds = playdate.getCurrentTimeMilliseconds()
+
+            if currentTimeMilliseconds >= (other.nextPlayerBounceTimeMilliseconds or 0) then
+                other.nextPlayerBounceTimeMilliseconds = currentTimeMilliseconds
+                    + self.tuning.OTHER_SIDE_BIG_ROCK_BOUNCE_COOLDOWN_MS
+                ScreenShake.start(self.tuning.OTHER_SIDE_BIG_ROCK_BOUNCE_SCREEN_SHAKE)
+                return "bounceFromBigRock", shieldHitsRemaining
+            end
+
+            return nil, shieldHitsRemaining
+        end
+
         return "destroyRockForScore", shieldHitsRemaining
     end
 
@@ -280,4 +321,55 @@ function TheOtherSideGameMode:resolveCollision(other, playerSprite, shieldHitsRe
     end
 
     return nil, shieldHitsRemaining
+end
+
+function TheOtherSideGameMode:getBigRockBounceResponse(
+    rock,
+    playerX,
+    playerY,
+    velocityX,
+    velocityY
+)
+    local normalX = playerX - rock.x
+    local normalY = playerY - rock.y
+    local normalLength = math.sqrt(normalX * normalX + normalY * normalY)
+
+    if normalLength < 0.001 then
+        normalX = -velocityX
+        normalY = -velocityY
+        normalLength = math.sqrt(normalX * normalX + normalY * normalY)
+
+        if normalLength < 0.001 then
+            normalX = -1
+            normalY = 0
+            normalLength = 1
+        end
+    end
+
+    normalX /= normalLength
+    normalY /= normalLength
+
+    local bounceForce = self.tuning.OTHER_SIDE_BIG_ROCK_BOUNCE_FORCE
+    local bounceVelocityX = normalX * bounceForce
+    local bounceVelocityY = normalY * bounceForce
+    local verticalSeparationDirection = normalY
+    local minimumVerticalForce =
+        self.tuning.OTHER_SIDE_BIG_ROCK_MINIMUM_VERTICAL_BOUNCE_FORCE
+
+    if math.abs(bounceVelocityY) < minimumVerticalForce then
+        verticalSeparationDirection = playerY
+                < self.tuning.OTHER_SIDE_BIG_ROCK_VERTICAL_BOUNCE_CENTER_Y
+            and 1
+            or -1
+        bounceVelocityY = verticalSeparationDirection * minimumVerticalForce
+    end
+
+    local separation = self.tuning.OTHER_SIDE_BIG_ROCK_BOUNCE_SEPARATION
+
+    return velocityX,
+        velocityY,
+        bounceVelocityX,
+        bounceVelocityY,
+        playerX + normalX * separation,
+        playerY + verticalSeparationDirection * separation
 end

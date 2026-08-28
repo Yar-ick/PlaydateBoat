@@ -98,13 +98,15 @@ local rampSoundPlayers = {
     landing = pds.sampleplayer.new("sounds/WaterLanding"),
     success = pds.sampleplayer.new("sounds/AbilityUpgradeSuccess3"),
     impulse = pds.sampleplayer.new("sounds/Impulse"),
-    impulsePickup = pds.sampleplayer.new("sounds/Impulse")
+    impulsePickup = pds.sampleplayer.new("sounds/Impulse"),
+    bigRockBounce = pds.sampleplayer.new("sounds/BigRockBounce")
 }
 rampSoundPlayers.success:setRate(TUNING.RAMP_SUCCESS_SOUND_RATE)
 rampSoundPlayers.success:setVolume(TUNING.RAMP_SUCCESS_SOUND_VOLUME)
 rampSoundPlayers.impulse:setVolume(TUNING.OTHER_SIDE_IMPULSE_SOUND_VOLUME)
 rampSoundPlayers.impulsePickup:setVolume(TUNING.OTHER_SIDE_IMPULSE_PICKUP_SOUND_VOLUME)
 rampSoundPlayers.impulsePickup:setRate(TUNING.OTHER_SIDE_IMPULSE_PICKUP_SOUND_RATE)
+rampSoundPlayers.bigRockBounce:setVolume(TUNING.OTHER_SIDE_BIG_ROCK_BOUNCE_SOUND_VOLUME)
 local buyAbilitySoundPlayer = pds.sampleplayer.new("sounds/AbilityPurchaseSuccess")
 local noUpgradeSoundPlayer = pds.sampleplayer.new("sounds/NoUpgrade")
 local upgradeAbilitySoundPlayers = {
@@ -141,6 +143,7 @@ sfxChannel:addSource(rampSoundPlayers.landing)
 sfxChannel:addSource(rampSoundPlayers.success)
 sfxChannel:addSource(rampSoundPlayers.impulse)
 sfxChannel:addSource(rampSoundPlayers.impulsePickup)
+sfxChannel:addSource(rampSoundPlayers.bigRockBounce)
 sfxChannel:addSource(buyAbilitySoundPlayer)
 sfxChannel:addSource(noUpgradeSoundPlayer)
 
@@ -539,6 +542,9 @@ end
 
 local function setRockImage(rock, imageIndex)
     rock.imageIndex = imageIndex
+    rock.isBig = imageIndex >= TUNING.BIG_ROCK_FIRST_IMAGE_INDEX
+    rock.bigRockSpawnEdge = nil
+    rock.nextPlayerBounceTimeMilliseconds = 0
     rock.imageWidth = rockImageWidths[imageIndex]
     rock.imageHeight = rockImageHeights[imageIndex]
 
@@ -569,6 +575,12 @@ local function updateRockAnimation(rock)
 end
 
 local function findRockSpawnPosition(rock)
+    local minimumY, maximumY = GameModes.active:getRockSpawnYRange(
+        rock,
+        TUNING.WORLD_SPAWN_MINIMUM_Y + rock.imageHeight / 2,
+        TUNING.WORLD_SPAWN_MAXIMUM_Y - rock.imageHeight / 2
+    )
+
     return InteractiveSpawn.findPosition(
         interactableObjectGroups,
         rock,
@@ -576,15 +588,23 @@ local function findRockSpawnPosition(rock)
         rock.imageHeight,
         TUNING.ROCK_SPAWN_MINIMUM_X,
         -rock.imageWidth / 2,
-        TUNING.WORLD_SPAWN_MINIMUM_Y + rock.imageHeight / 2,
-        TUNING.WORLD_SPAWN_MAXIMUM_Y - rock.imageHeight / 2,
+        minimumY,
+        maximumY,
         TUNING.INTERACTIVE_SPAWN_PADDING,
         TUNING.INTERACTIVE_SPAWN_ATTEMPTS
     )
 end
 
 local function resetRockPosition(rock)
-    setRockImage(rock, math.random(#rockImages))
+    local imageIndex = math.random(TUNING.BIG_ROCK_FIRST_IMAGE_INDEX - 1)
+
+    if #rockImages >= TUNING.BIG_ROCK_FIRST_IMAGE_INDEX
+        and math.random(100) <= TUNING.BIG_ROCK_SPAWN_CHANCE_PERCENT
+    then
+        imageIndex = math.random(TUNING.BIG_ROCK_FIRST_IMAGE_INDEX, #rockImages)
+    end
+
+    setRockImage(rock, imageIndex)
 
     local x, y = findRockSpawnPosition(rock)
     if x == nil then
@@ -1769,6 +1789,21 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed)
             then
                 playSoundOneShot(boatExplosionSoundPlayer)
                 ScreenShake.start(TUNING.STEAMBOAT_EXPLOSION_SCREEN_SHAKE)
+            elseif collisionAction == "bounceFromBigRock" then
+                playSoundOneShot(rampSoundPlayers.bigRockBounce)
+                xVelocity,
+                    yVelocity,
+                    dashVelocityX,
+                    dashVelocityY,
+                    playerX,
+                    playerY = GameModes.active:getBigRockBounceResponse(
+                        other,
+                        playerX,
+                        playerY,
+                        xVelocity,
+                        yVelocity
+                    )
+                playerSprite:moveTo(playerX, playerY)
             elseif collisionAction == "crash" then
                 return true
             end
@@ -2112,7 +2147,9 @@ OtherSide.initialize(
     function(rock)
         if rock.active then
             destroyRock(rock, false)
-            playerScore += TUNING.OTHER_SIDE_ROCK_SCORE
+            playerScore += rock.isBig
+                and TUNING.OTHER_SIDE_BIG_ROCK_SCORE
+                or TUNING.OTHER_SIDE_ROCK_SCORE
         end
     end
 )
@@ -2918,11 +2955,15 @@ function playdate.update()
     local movementSpeed = math.sqrt(
         movementVelocityX * movementVelocityX + movementVelocityY * movementVelocityY
     )
-    local desiredVelocityAngle =
-        math.normalizeAngle(math.deg(math.atan2(
-            yVelocity + dashVelocityY,
-            xVelocity + dashVelocityX
-        )) + 90)
+    local angleVelocityX, angleVelocityY = GameModes.active:getDesiredAngleVelocity(
+        xVelocity,
+        yVelocity,
+        dashVelocityX,
+        dashVelocityY
+    )
+    local desiredVelocityAngle = math.normalizeAngle(
+        math.deg(math.atan2(angleVelocityY, angleVelocityX)) + 90
+    )
     local currentVelocityAngle = GameModes.active:getVisualAngle(
         desiredVelocityAngle,
         launchVisualAngle,
