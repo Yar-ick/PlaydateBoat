@@ -114,11 +114,14 @@ local rampSoundPlayers = {
     takeoff = pds.sampleplayer.new("sounds/RampTakeoff"),
     landing = pds.sampleplayer.new("sounds/WaterLanding"),
     success = pds.sampleplayer.new("sounds/AbilityUpgradeSuccess3"),
-    impulse = pds.sampleplayer.new("sounds/Impulse")
+    impulse = pds.sampleplayer.new("sounds/Impulse"),
+    impulsePickup = pds.sampleplayer.new("sounds/Impulse")
 }
 rampSoundPlayers.success:setRate(TUNING.RAMP_SUCCESS_SOUND_RATE)
 rampSoundPlayers.success:setVolume(TUNING.RAMP_SUCCESS_SOUND_VOLUME)
 rampSoundPlayers.impulse:setVolume(TUNING.OTHER_SIDE_IMPULSE_SOUND_VOLUME)
+rampSoundPlayers.impulsePickup:setVolume(TUNING.OTHER_SIDE_IMPULSE_PICKUP_SOUND_VOLUME)
+rampSoundPlayers.impulsePickup:setRate(TUNING.OTHER_SIDE_IMPULSE_PICKUP_SOUND_RATE)
 local buyAbilitySoundPlayer = pds.sampleplayer.new("sounds/AbilityPurchaseSuccess")
 local noUpgradeSoundPlayer = pds.sampleplayer.new("sounds/NoUpgrade")
 local upgradeAbilitySoundPlayers = {
@@ -158,6 +161,7 @@ sfxChannel:addSource(rampSoundPlayers.takeoff)
 sfxChannel:addSource(rampSoundPlayers.landing)
 sfxChannel:addSource(rampSoundPlayers.success)
 sfxChannel:addSource(rampSoundPlayers.impulse)
+sfxChannel:addSource(rampSoundPlayers.impulsePickup)
 sfxChannel:addSource(buyAbilitySoundPlayer)
 sfxChannel:addSource(noUpgradeSoundPlayer)
 
@@ -183,12 +187,12 @@ for i = 1, 4 do
     sfxChannel:addSource(rockExplosionSoundPlayers[i])
 end
 
-local function playSoundOneShot(soundPlayer)
+local function playSoundOneShot(soundPlayer, startOffsetSeconds)
     if soundPlayer:isPlaying() then
         soundPlayer:stop()
     end
 
-    soundPlayer:setOffset(0)
+    soundPlayer:setOffset(startOffsetSeconds or 0)
     soundPlayer:play()
 end
 
@@ -824,7 +828,10 @@ local function onGrowthCollected()
     end
 
     GameplayProgress.impulseCharge = 1
-    playSoundOneShot(shrinkSoundPlayer)
+    playSoundOneShot(
+        rampSoundPlayers.impulsePickup,
+        TUNING.OTHER_SIDE_IMPULSE_PICKUP_SOUND_OFFSET_SECONDS
+    )
 end
 
 local function onSpeedReductionCollected()
