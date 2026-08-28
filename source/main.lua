@@ -460,7 +460,8 @@ GameplayProgress = {
     impulseCharge = 0,
     hornActiveRemainingMilliseconds = 0,
     waitingControlsSlideProgress = 0,
-    waitingControlsExitStarted = false
+    waitingControlsExitStarted = false,
+    manualReturnActive = false
 }
 
 local scoreTimer = pd.timer.new(1000, function()
@@ -1924,6 +1925,7 @@ local function prepareNewRun()
     GameplayProgress.hornActiveRemainingMilliseconds = 0
     GameplayProgress.waitingControlsSlideProgress = 0
     GameplayProgress.waitingControlsExitStarted = false
+    GameplayProgress.manualReturnActive = false
     currentPlayerScale = 1
     targetPlayerScale = 1
     bButtonHeldMilliseconds = 0
@@ -2107,6 +2109,7 @@ local function beginGameplay()
 end
 
 local function beginReturnToMenu()
+    GameplayProgress.manualReturnActive = false
     BoatGameState = GameState.RETURNING_TO_MENU
     presentationElapsedMilliseconds = 0
     hideGameplayWorld()
@@ -2130,6 +2133,24 @@ local function beginReturnToMenu()
     playerSprite:moveTo(playerX, playerY)
     startMenuMusic()
 end
+
+pd.getSystemMenu():addMenuItem("Main menu", function()
+    if BoatGameState ~= GameState.MAIN_MENU
+        and BoatGameState ~= GameState.CRASH_REWIND
+        and BoatGameState ~= GameState.RETURNING_TO_MENU
+    then
+        GameplayProgress.pause()
+        stopGameplayLoopSounds()
+        GameplayProgress.manualReturnActive = true
+        BoatGameState = GameState.CRASH_REWIND
+        presentationElapsedMilliseconds = 0
+        crashReturnDelayElapsedMilliseconds = TUNING.CRASH_RETURN_DELAY_MS
+        FlightShadow.reset()
+        clearWakeLines()
+        resetExplosion()
+        ScreenShake.reset()
+    end
+end)
 
 local function smoothstep(progress)
     local clampedProgress = math.clamp(progress, 0, 1)
@@ -2736,13 +2757,31 @@ function playdate.update()
             rewindDisplacement
         )
 
+        if GameplayProgress.manualReturnActive then
+            playerX += rewindDisplacement
+            playerSprite:moveTo(playerX, playerY)
+
+            local visualPlayerScale = currentPlayerScale
+                * BoatJump.getScale()
+                * Whirlpool.getPlayerScale()
+            local playerHalfWidth = playerImageWidth * visualPlayerScale / 2
+
+            if playerX + playerHalfWidth < 0 then
+                playerSprite:setVisible(false)
+            else
+                remainingObjectCount += 1
+            end
+        end
+
         setWaterTransform(
             waterScrollX + getWaterVisualDisplacement(rewindDisplacement),
             TUNING.WATER_BACKGROUND_Y_OFFSET
         )
         ScreenShake.applyDrawOffset()
         pdg.sprite.update()
-        updateExplosion()
+        if GameplayProgress.manualReturnActive == false then
+            updateExplosion()
+        end
         ScreenShake.clearDrawOffset()
         drawHud()
 
@@ -3066,6 +3105,7 @@ function playdate.update()
             markProgressChanged()
         end
 
+        GameplayProgress.manualReturnActive = false
         BoatGameState = GameState.CRASH_REWIND
         presentationElapsedMilliseconds = 0
         crashReturnDelayElapsedMilliseconds = 0
