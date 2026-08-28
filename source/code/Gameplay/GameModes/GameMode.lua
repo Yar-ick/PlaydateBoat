@@ -17,6 +17,7 @@ function GameMode:init(tuning, configuration)
     self.menuLaunchDurationMilliseconds = configuration.menuLaunchDurationMilliseconds
     self.menuLaunchCurve = configuration.menuLaunchCurve
     self.maximumShieldHits = configuration.maximumShieldHits
+    self.playerClamp = configuration.playerClamp
 end
 
 function GameMode:getPlayerImagetable()
@@ -37,6 +38,20 @@ end
 
 function GameMode:getGameplayEntryBoatAngle()
     return self.gameplayEntryBoatAngle
+end
+
+function GameMode:getPlayerClampBounds(
+    screenWidth,
+    screenHeight,
+    hudHeight,
+    scaledPlayerWidth,
+    scaledPlayerHeight,
+    unscaledPlayerHeight
+)
+    return scaledPlayerWidth * self.playerClamp.LEFT_SCALED_WIDTH_FRACTION,
+        screenWidth - scaledPlayerWidth * self.playerClamp.RIGHT_SCALED_WIDTH_FRACTION,
+        hudHeight + unscaledPlayerHeight * self.playerClamp.TOP_UNSCALED_HEIGHT_FRACTION,
+        screenHeight - scaledPlayerHeight * self.playerClamp.BOTTOM_SCALED_HEIGHT_FRACTION
 end
 
 function GameMode:getMenuLaunchDurationMilliseconds()

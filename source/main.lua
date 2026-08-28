@@ -3009,15 +3009,19 @@ function playdate.update()
         * Whirlpool.getPlayerScale()
     local scaledPlayerWidth = playerImageWidth * visualPlayerScale
     local scaledPlayerHeight = playerImageHeight * visualPlayerScale
-    local playerMaximumX = 400 - scaledPlayerWidth / 1.5
+    local playerMinimumX, playerMaximumX, playerMinimumY, playerMaximumY =
+        GameModes.active:getPlayerClampBounds(
+            400,
+            240,
+            TUNING.HUD_HEIGHT,
+            scaledPlayerWidth,
+            scaledPlayerHeight,
+            playerImageHeight
+        )
     local capturedAtRightEdge = whirlpoolCaptureX ~= nil
         and whirlpoolCaptureX >= playerMaximumX
-    playerX = math.clamp(playerX, scaledPlayerWidth / 2, playerMaximumX)
-    playerY = math.clamp(
-        playerY,
-        TUNING.HUD_HEIGHT + playerImageHeight / 2,
-        240 - scaledPlayerHeight / 3
-    )
+    playerX = math.clamp(playerX, playerMinimumX, playerMaximumX)
+    playerY = math.clamp(playerY, playerMinimumY, playerMaximumY)
     playerSprite:moveTo(playerX, playerY)
     playerSprite:setScale(visualPlayerScale)
     FlightShadow.update(

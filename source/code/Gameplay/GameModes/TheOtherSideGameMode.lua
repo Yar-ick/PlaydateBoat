@@ -13,7 +13,8 @@ function TheOtherSideGameMode:init(tuning)
         gameplayEntryBoatAngle = tuning.OTHER_SIDE_GAMEPLAY_ENTRY_BOAT_ANGLE,
         menuLaunchDurationMilliseconds = tuning.OTHER_SIDE_MENU_LAUNCH_DURATION_MS,
         menuLaunchCurve = tuning.OTHER_SIDE_MENU_LAUNCH_CURVE,
-        maximumShieldHits = tuning.OTHER_SIDE_MAX_SHIELD_HITS
+        maximumShieldHits = tuning.OTHER_SIDE_MAX_SHIELD_HITS,
+        playerClamp = tuning.OTHER_SIDE_PLAYER_CLAMP
     })
 end
 

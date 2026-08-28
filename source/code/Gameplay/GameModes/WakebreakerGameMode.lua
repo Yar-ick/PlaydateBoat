@@ -13,7 +13,8 @@ function WakebreakerGameMode:init(tuning)
         gameplayEntryBoatAngle = tuning.GAMEPLAY_ENTRY_BOAT_ANGLE,
         menuLaunchDurationMilliseconds = tuning.MENU_LAUNCH_DURATION_MS,
         menuLaunchCurve = tuning.MENU_LAUNCH_CURVE,
-        maximumShieldHits = tuning.MAX_SHIELD_HITS
+        maximumShieldHits = tuning.MAX_SHIELD_HITS,
+        playerClamp = tuning.WAKEBREAKER_PLAYER_CLAMP
     })
 end
 
