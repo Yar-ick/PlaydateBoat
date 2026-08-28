@@ -2019,7 +2019,6 @@ local function updateMainMenuBoatFloat(elapsedMilliseconds)
 end
 
 local function enterMainMenu()
-    saveProgress()
     prepareNewRun()
     BoatGameState = GameState.MAIN_MENU
     MenuCrankNavigation.reset()
@@ -2212,13 +2211,11 @@ function playdate.crankUndocked()
 end
 
 function playdate.gameWillPause()
-    saveProgress()
     GameplayProgress.pause()
     stopGameplayLoopSounds()
 end
 
 function playdate.gameWillResume()
-    saveProgress()
     GameplayProgress.resumeAfterSystemInterruption()
 end
 
@@ -2393,7 +2390,6 @@ function playdate.update()
         )
 
         if upgradeMenuState.closing and upgradeMenuState.progress <= 0 then
-            saveProgress()
             BoatGameState = GameState.MAIN_MENU
             upgradeMenuState.closing = false
             MenuCrankNavigation.reset()
