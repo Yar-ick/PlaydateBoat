@@ -3285,7 +3285,10 @@ function playdate.update()
         * Whirlpool.getPlayerScale()
     local scaledPlayerWidth = playerImageWidth * visualPlayerScale
     local scaledPlayerHeight = playerImageHeight * visualPlayerScale
-    playerX = math.clamp(playerX, scaledPlayerWidth / 2, 400 - scaledPlayerWidth / 1.5)
+    local playerMaximumX = 400 - scaledPlayerWidth / 1.5
+    local capturedAtRightEdge = whirlpoolCaptureX ~= nil
+        and whirlpoolCaptureX >= playerMaximumX
+    playerX = math.clamp(playerX, scaledPlayerWidth / 2, playerMaximumX)
     playerY = math.clamp(
         playerY,
         TUNING.HUD_HEIGHT + playerImageHeight / 2,
@@ -3324,7 +3327,7 @@ function playdate.update()
         playSoundOneShot(rampSoundPlayers.success)
     end
 
-    local didCrash = Whirlpool.isCaptureComplete()
+    local didCrash = Whirlpool.isCaptureComplete() or capturedAtRightEdge
 
     if Whirlpool.isCapturing() == false then
         didCrash = handlePlayerCollisions(

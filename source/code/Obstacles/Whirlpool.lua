@@ -258,7 +258,7 @@ function Whirlpool.getAttraction(
 )
     forceMultiplier = forceMultiplier or 1
     canCapture = canCapture ~= false
-    if state ~= "active" or escaped or isAirborne then
+    if state ~= "active" or isAirborne then
         stopAttraction()
         return 0, 0
     end
@@ -271,6 +271,15 @@ function Whirlpool.getAttraction(
     local deltaX = x - playerX
     local deltaY = y - playerY
     local distance = math.sqrt(deltaX * deltaX + deltaY * deltaY)
+
+    if escaped then
+        if distance <= tuning.WHIRLPOOL_ESCAPE_RADIUS then
+            stopAttraction()
+            return 0, 0
+        end
+
+        escaped = false
+    end
 
     if distance > tuning.WHIRLPOOL_ATTRACTION_RADIUS then
         stopAttraction()
