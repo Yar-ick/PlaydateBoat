@@ -292,6 +292,13 @@ end
 function TheOtherSideGameMode:resolveCollision(collision, playerSprite, shieldHitsRemaining)
     local other = collision.other
 
+    if other.objectType == "otherSideOil"
+        and self:isPixelPerfectCollision(collision, playerSprite)
+    then
+        OilStains.startCleaning(other)
+        return nil, shieldHitsRemaining
+    end
+
     if other.objectType == "rock" and self:isPixelPerfectCollision(collision, playerSprite) then
         if other.isBig then
             local currentTimeMilliseconds = playdate.getCurrentTimeMilliseconds()
@@ -322,6 +329,7 @@ function TheOtherSideGameMode:resolveCollision(collision, playerSprite, shieldHi
             return nil, remainingShields
         end
 
+        OtherSide.destroySmallBoat(other)
         return "crash", shieldHitsRemaining
     end
 

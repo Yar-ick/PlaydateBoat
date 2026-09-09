@@ -879,9 +879,11 @@ end
 function OtherSide.initialize(
     gameplayTuning,
     sfxChannel,
+    interactableObjectGroups,
     sharedExplosionImagetable,
     onRockCollisionExplosion,
-    onImpulseRockCollision
+    onImpulseRockCollision,
+    onOilCleaned
 )
     tuning = gameplayTuning
     explosionImagetable = sharedExplosionImagetable
@@ -891,6 +893,12 @@ function OtherSide.initialize(
     hornMaximumRadiusY = tuning.OTHER_SIDE_HORN_WARNING_RADIUS_Y
     hornSoundPlayer = pds.sampleplayer.new("sounds/ShipHorn")
     sfxChannel:addSource(hornSoundPlayer)
+    OilStains.initialize(
+        gameplayTuning,
+        sfxChannel,
+        interactableObjectGroups,
+        onOilCleaned
+    )
 
     local imageWidth, imageHeight = smallBoatImagetable:getImage(1):getSize()
 
@@ -932,6 +940,8 @@ function OtherSide.initialize(
         boats[index] = boat
     end
 
+    interactableObjectGroups[#interactableObjectGroups + 1] = boats
+
     for index = 1, tuning.OTHER_SIDE_SMALL_BOAT_WAKE_POOL_SIZE do
         local line = { active = false }
         wakeLinePool[index] = line
@@ -942,6 +952,7 @@ end
 function OtherSide.beginRun()
     OtherSide.reset()
     running = true
+    OilStains.beginRun()
     resetSpawnCountdown()
 end
 
@@ -957,6 +968,7 @@ function OtherSide.update(
 )
     updateExplosions(worldDisplacement)
     updateWakeLines(worldDisplacement, running)
+    OilStains.update(elapsedMilliseconds, worldDisplacement)
 
     if running == false then
         return
@@ -1260,6 +1272,10 @@ function OtherSide.rewind(displacement)
 
     updateExplosions(displacement)
     updateWakeLines(displacement, false)
+    -- Oil is background residue, not an obstacle that should hold the camera.
+    -- Keep it moving during the rewind, then reset any remainder when the menu
+    -- transition starts.
+    OilStains.rewind(displacement)
 
     if impulseActive then
         impulseX += displacement
@@ -1275,6 +1291,7 @@ function OtherSide.stopSounds()
     hornRadiusState = "idle"
     hornRadiusElapsedMilliseconds = 0
     hornCollapseStartRadius = 0
+    OilStains.stopSounds()
 
     if hornSoundPlayer ~= nil and hornSoundPlayer:isPlaying() then
         hornSoundPlayer:stop()
@@ -1300,6 +1317,7 @@ function OtherSide.reset()
     impulseElapsedMilliseconds = 0
     impulseHitBoats = {}
     OtherSide.stopSounds()
+    OilStains.reset()
 
     for index = 1, #boats do
         deactivateBoat(boats[index])

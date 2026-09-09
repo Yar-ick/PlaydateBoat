@@ -1,18 +1,7 @@
 local pdg <const> = playdate.graphics
 
 local tuning = nil
-local scoreImage = nil
-local scoreImageWidth = 0
-local scoreImageHeight = 0
-local active = false
-local isShrinking = false
-local elapsedMilliseconds = 0
-local startX = 0
-local startY = 0
-local drawX = 0
-local drawY = 0
-local drawScale = 1
-local pendingScoreValue = 0
+local effects = {}
 local scoreImageCache = {}
 
 ScoreFlyEffect = {}
@@ -21,23 +10,20 @@ local function smoothStep(progress)
     return progress * progress * (3 - 2 * progress)
 end
 
-local function setScoreImage(scoreValue)
+local function getScoreImage(scoreValue)
     local cachedImage = scoreImageCache[scoreValue]
 
     if cachedImage ~= nil then
-        scoreImage = cachedImage.image
-        scoreImageWidth = cachedImage.width
-        scoreImageHeight = cachedImage.height
-        return
+        return cachedImage
     end
 
     local scoreText = "+" .. tostring(scoreValue)
     local textWidth, textHeight = pdg.getTextSize(scoreText)
-    scoreImageWidth = textWidth + 5
-    scoreImageHeight = textHeight + 4
-    scoreImage = pdg.image.new(scoreImageWidth, scoreImageHeight)
+    local imageWidth = textWidth + 5
+    local imageHeight = textHeight + 4
+    local image = pdg.image.new(imageWidth, imageHeight)
 
-    pdg.pushContext(scoreImage)
+    pdg.pushContext(image)
     pdg.setColor(pdg.kColorWhite)
 
     for offsetY = 0, 2 do
@@ -51,92 +37,92 @@ local function setScoreImage(scoreValue)
     pdg.drawText(scoreText, 3, 2)
     pdg.popContext()
 
-    scoreImageCache[scoreValue] = {
-        image = scoreImage,
-        width = scoreImageWidth,
-        height = scoreImageHeight
+    cachedImage = {
+        image = image,
+        width = imageWidth,
+        height = imageHeight
     }
+    scoreImageCache[scoreValue] = cachedImage
+    return cachedImage
 end
 
 function ScoreFlyEffect.initialize(gameplayTuning)
     tuning = gameplayTuning
-    setScoreImage(tuning.RAMP_JUMP_SCORE_REWARD)
+    getScoreImage(tuning.RAMP_JUMP_SCORE_REWARD)
+    getScoreImage(tuning.OTHER_SIDE_OIL_SCORE)
 end
 
 function ScoreFlyEffect.start(x, y, scoreValue)
-    pendingScoreValue = scoreValue
-    setScoreImage(scoreValue)
-    active = true
-    isShrinking = false
-    elapsedMilliseconds = 0
-    startX = x
-    startY = y
-    drawX = x
-    drawY = y
-    drawScale = 1
+    effects[#effects + 1] = {
+        scoreValue = scoreValue,
+        imageData = getScoreImage(scoreValue),
+        isShrinking = false,
+        elapsedMilliseconds = 0,
+        startX = x,
+        startY = y,
+        drawX = x,
+        drawY = y,
+        drawScale = 1
+    }
 end
 
 function ScoreFlyEffect.update(deltaMilliseconds)
-    if active == false then
-        return nil
-    end
+    local reachedScoreValue = 0
 
-    elapsedMilliseconds += deltaMilliseconds
+    for index = #effects, 1, -1 do
+        local effect = effects[index]
+        effect.elapsedMilliseconds += deltaMilliseconds
 
-    if isShrinking then
-        local progress = math.min(
-            elapsedMilliseconds / tuning.RAMP_SCORE_SHRINK_DURATION_MS,
-            1
-        )
-        drawScale = 1 - smoothStep(progress)
+        if effect.isShrinking then
+            local progress = math.min(
+                effect.elapsedMilliseconds / tuning.RAMP_SCORE_SHRINK_DURATION_MS,
+                1
+            )
+            effect.drawScale = 1 - smoothStep(progress)
 
-        if progress >= 1 then
-            active = false
+            if progress >= 1 then
+                table.remove(effects, index)
+            end
+        else
+            local progress = math.min(
+                effect.elapsedMilliseconds / tuning.RAMP_SCORE_FLY_DURATION_MS,
+                1
+            )
+            local easedProgress = smoothStep(progress)
+            effect.drawX = effect.startX
+                + (tuning.RAMP_SCORE_FLY_TARGET_X - effect.startX) * easedProgress
+            effect.drawY = effect.startY
+                + (tuning.RAMP_SCORE_FLY_TARGET_Y - effect.startY) * easedProgress
+                - math.sin(progress * math.pi) * tuning.RAMP_SCORE_FLY_ARC_HEIGHT
+
+            if progress >= 1 then
+                effect.drawX = tuning.RAMP_SCORE_FLY_TARGET_X
+                effect.drawY = tuning.RAMP_SCORE_FLY_TARGET_Y
+                effect.isShrinking = true
+                effect.elapsedMilliseconds = 0
+                reachedScoreValue += effect.scoreValue
+            end
         end
-
-        return nil
     end
 
-    local progress = math.min(
-        elapsedMilliseconds / tuning.RAMP_SCORE_FLY_DURATION_MS,
-        1
-    )
-    local easedProgress = smoothStep(progress)
-    drawX = startX
-        + (tuning.RAMP_SCORE_FLY_TARGET_X - startX) * easedProgress
-    drawY = startY
-        + (tuning.RAMP_SCORE_FLY_TARGET_Y - startY) * easedProgress
-        - math.sin(progress * math.pi) * tuning.RAMP_SCORE_FLY_ARC_HEIGHT
-
-    if progress >= 1 then
-        drawX = tuning.RAMP_SCORE_FLY_TARGET_X
-        drawY = tuning.RAMP_SCORE_FLY_TARGET_Y
-        isShrinking = true
-        elapsedMilliseconds = 0
-        local reachedScoreValue = pendingScoreValue
-        pendingScoreValue = 0
-        return reachedScoreValue
-    end
-
-    return nil
+    return reachedScoreValue > 0 and reachedScoreValue or nil
 end
 
 function ScoreFlyEffect.draw()
-    if active == false or drawScale <= 0 then
-        return
-    end
+    for index = 1, #effects do
+        local effect = effects[index]
 
-    scoreImage:drawScaled(
-        drawX - scoreImageWidth * drawScale / 2,
-        drawY - scoreImageHeight * drawScale / 2,
-        drawScale
-    )
+        if effect.drawScale > 0 then
+            local imageData = effect.imageData
+            imageData.image:drawScaled(
+                effect.drawX - imageData.width * effect.drawScale / 2,
+                effect.drawY - imageData.height * effect.drawScale / 2,
+                effect.drawScale
+            )
+        end
+    end
 end
 
 function ScoreFlyEffect.reset()
-    active = false
-    isShrinking = false
-    elapsedMilliseconds = 0
-    drawScale = 1
-    pendingScoreValue = 0
+    effects = {}
 end

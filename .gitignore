@@ -31,5 +31,11 @@ tools/
 # Power Shell scripts
 *.ps1
 
+# Sentry
+.sentry-native/
+
+# Raw assets
+raw/
+
 # Folder with some temp files from Playdate
 main.pdx

@@ -16,6 +16,7 @@ import "code/Collectables/SpeedReductionCollectable"
 import "code/Gameplay/BoatJump"
 import "code/Gameplay/AbilityProgression"
 import "code/Gameplay/Difficulty"
+import "code/Gameplay/OilStains"
 import "code/Gameplay/OtherSide"
 import "code/Obstacles/Ramp"
 import "code/Obstacles/Steamboat"
@@ -2161,6 +2162,7 @@ Steamboat.initialize(TUNING, sfxChannel, destroyRock, explosionImagetable)
 OtherSide.initialize(
     TUNING,
     sfxChannel,
+    interactableObjectGroups,
     explosionImagetable,
     function()
         playSoundOneShot(boatExplosionSoundPlayer)
@@ -2172,6 +2174,10 @@ OtherSide.initialize(
                 and TUNING.OTHER_SIDE_BIG_ROCK_SCORE
                 or TUNING.OTHER_SIDE_ROCK_SCORE
         end
+    end,
+    function(x, y, scoreValue)
+        ScoreFlyEffect.start(x, y, scoreValue)
+        playSoundOneShot(rampSoundPlayers.success)
     end
 )
 enterMainMenu()
