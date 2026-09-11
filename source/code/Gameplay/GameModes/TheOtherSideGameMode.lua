@@ -304,8 +304,13 @@ function TheOtherSideGameMode:resolveCollision(collision, playerSprite, shieldHi
             if currentTimeMilliseconds >= (other.nextPlayerBounceTimeMilliseconds or 0) then
                 other.nextPlayerBounceTimeMilliseconds = currentTimeMilliseconds
                     + self.tuning.OTHER_SIDE_BIG_ROCK_BOUNCE_COOLDOWN_MS
+
+                if shieldHitsRemaining <= 0 then
+                    return "crash", shieldHitsRemaining
+                end
+
                 ScreenShake.start(self.tuning.OTHER_SIDE_BIG_ROCK_BOUNCE_SCREEN_SHAKE)
-                return "bounceFromBigRock", shieldHitsRemaining
+                return "bounceFromBigRock", shieldHitsRemaining - 1
             end
 
             return nil, shieldHitsRemaining
