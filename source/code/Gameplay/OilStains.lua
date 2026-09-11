@@ -19,23 +19,14 @@ local pendingScoreY = 0
 -- fractions of the configured spread so the stain bounds remain tunable.
 local stainCircleLayout <const> = {
     { x = 0, y = 0, radius = 1 },
-    { x = -0.35, y = -0.05, radius = 0.9 },
-    { x = 0.35, y = 0.05, radius = 0.9 },
-    { x = -0.65, y = 0.08, radius = 0.78 },
-    { x = 0.65, y = -0.08, radius = 0.78 },
-    { x = -0.18, y = -0.58, radius = 0.75 },
-    { x = 0.2, y = 0.58, radius = 0.75 },
-    { x = -0.82, y = -0.5, radius = 0.55 },
-    { x = -1, y = -1, radius = 0 },
-    { x = 0.82, y = 0.5, radius = 0.55 },
-    { x = 1, y = 0.95, radius = 0 },
-    { x = 0.3, y = -1, radius = 0.45 },
-    { x = -0.48, y = 0.48, radius = 0.58 },
-    { x = 0.48, y = -0.48, radius = 0.58 },
-    { x = -0.08, y = 0.92, radius = 0.48 },
-    { x = -0.55, y = -0.82, radius = 0.4 },
-    { x = 0.62, y = 0.82, radius = 0.4 },
-    { x = -0.88, y = 0.55, radius = 0.32 }
+    { x = -0.48, y = -0.05, radius = 0.88 },
+    { x = 0.48, y = 0.05, radius = 0.88 },
+    { x = -1, y = -0.25, radius = 0.55 },
+    { x = 1, y = 0.25, radius = 0.55 },
+    { x = 0.15, y = -1, radius = 0.45 },
+    { x = -0.2, y = 1, radius = 0.45 },
+    { x = -0.58, y = -0.62, radius = 0.5 },
+    { x = 0.58, y = 0.62, radius = 0.5 }
 }
 
 OilStains = {}
@@ -45,12 +36,17 @@ local function smoothstep(progress)
     return progress * progress * (3 - 2 * progress)
 end
 
-local function makeCircleImage(radius)
+local function makeCircleImage(radius, ditherAlpha, ditherType)
     local size = radius * 2 + 2
     local image = pdg.image.new(size, size)
 
     pdg.pushContext(image)
     pdg.setColor(pdg.kColorBlack)
+
+    if ditherAlpha ~= nil then
+        pdg.setDitherPattern(ditherAlpha, ditherType)
+    end
+
     pdg.fillCircleAtPoint(radius + 1, radius + 1, radius)
     pdg.popContext()
 
@@ -144,6 +140,16 @@ local function findInactiveStain()
     return nil
 end
 
+local function hasActiveStain()
+    for index = 1, #stains do
+        if stains[index].active then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function activateStain(stain, x, y, shouldAnimateAppearance)
     local activeCircleCount = math.random(
         tuning.OTHER_SIDE_OIL_MINIMUM_CIRCLES_PER_STAIN,
@@ -185,6 +191,16 @@ local function activateStain(stain, x, y, shouldAnimateAppearance)
         end
 
         local imageData = circleImages[radius]
+        local imageVariant = 1
+
+        -- Keep the center dark and randomly texture circles around the edge.
+        if index > tuning.OTHER_SIDE_OIL_SOLID_CORE_CIRCLE_COUNT
+            and math.random(100)
+                <= tuning.OTHER_SIDE_OIL_DITHER_CHANCE_PERCENT
+        then
+            imageVariant = math.random(2, 3)
+        end
+
         circle.radius = radius
         circle.stainOffsetX = offsetX
         circle.stainOffsetY = offsetY
@@ -193,7 +209,7 @@ local function activateStain(stain, x, y, shouldAnimateAppearance)
         circle.active = true
         circle.isCleaning = false
         circle.cleanElapsedMilliseconds = 0
-        circle:setImage(imageData.image)
+        circle:setImage(imageData.images[imageVariant])
         circle:setScale(stain.isAppearing and 0 or 1)
         circle:setCollideRect(0, 0, imageData.size, imageData.size)
         circle:moveTo(
@@ -266,8 +282,21 @@ function OilStains.initialize(
     for radius = tuning.OTHER_SIDE_OIL_MINIMUM_RADIUS,
         tuning.OTHER_SIDE_OIL_MAXIMUM_RADIUS
     do
-        local image, size = makeCircleImage(radius)
-        circleImages[radius] = { image = image, size = size }
+        local solidImage, size = makeCircleImage(radius)
+        local denseDitherImage = makeCircleImage(
+            radius,
+            tuning.OTHER_SIDE_OIL_DITHER_DENSE_ALPHA,
+            pdg.image.kDitherTypeBayer4x4
+        )
+        local lightDitherImage = makeCircleImage(
+            radius,
+            tuning.OTHER_SIDE_OIL_DITHER_LIGHT_ALPHA,
+            pdg.image.kDitherTypeBayer8x8
+        )
+        circleImages[radius] = {
+            images = { solidImage, denseDitherImage, lightDitherImage },
+            size = size
+        }
     end
 
     local initialRadius = tuning.OTHER_SIDE_OIL_MINIMUM_RADIUS
@@ -292,7 +321,7 @@ function OilStains.initialize(
         for circleIndex = 1,
             tuning.OTHER_SIDE_OIL_MAXIMUM_CIRCLES_PER_STAIN
         do
-            local circle = pdg.sprite.new(initialImage.image)
+            local circle = pdg.sprite.new(initialImage.images[1])
             circle.objectType = "otherSideOil"
             circle.collisionResponse = pdg.sprite.kCollisionTypeOverlap
             circle.active = false
@@ -422,6 +451,12 @@ function OilStains.update(elapsedMilliseconds, worldDisplacement)
     updatePendingScore(elapsedMilliseconds)
 
     if running == false then
+        return
+    end
+
+    -- Keep only one stain in play and do not consume the next spawn delay
+    -- until the current stain has been cleaned or has fully left the screen.
+    if hasActiveStain() then
         return
     end
 
