@@ -292,10 +292,8 @@ end
 function TheOtherSideGameMode:resolveCollision(collision, playerSprite, shieldHitsRemaining)
     local other = collision.other
 
-    if other.objectType == "otherSideOil"
-        and self:isPixelPerfectCollision(collision, playerSprite)
-    then
-        OilStains.startCleaning(other)
+    if other.objectType == "otherSideOil" then
+        OilStains.startCleaning(other, playerSprite)
         return nil, shieldHitsRemaining
     end
 
