@@ -162,6 +162,14 @@ function TheOtherSideGameMode:getPlayerVelocity(defaultVelocity)
     return self.tuning.OTHER_SIDE_PLAYER_VELOCITY
 end
 
+function TheOtherSideGameMode:getMovementVelocityMultiplier()
+    if ShallowWaters.isPlayerInside() then
+        return self.tuning.OTHER_SIDE_SHALLOW_WATER_SPEED_MULTIPLIER
+    end
+
+    return 1
+end
+
 function TheOtherSideGameMode:getFastModeMultiplier(defaultMultiplier)
     return self.tuning.OTHER_SIDE_FAST_MODE_MULTIPLIER
 end
@@ -192,7 +200,13 @@ function TheOtherSideGameMode:getEngineInitialRate()
 end
 
 function TheOtherSideGameMode:getEngineVolume(isFast)
-    return self.tuning.OTHER_SIDE_ENGINE_VOLUME
+    local volume = self.tuning.OTHER_SIDE_ENGINE_VOLUME
+
+    if ShallowWaters.isPlayerInside() then
+        volume *= self.tuning.OTHER_SIDE_SHALLOW_WATER_ENGINE_VOLUME_MULTIPLIER
+    end
+
+    return math.min(1, volume)
 end
 
 function TheOtherSideGameMode:getEngineTargetRate(isFast, isShrunk, currentWorldVelocity)
@@ -200,6 +214,10 @@ function TheOtherSideGameMode:getEngineTargetRate(isFast, isShrunk, currentWorld
 
     if isFast then
         targetRate *= self.tuning.OTHER_SIDE_ENGINE_FAST_RATE_MULTIPLIER
+    end
+
+    if ShallowWaters.isPlayerInside() then
+        targetRate *= self.tuning.OTHER_SIDE_SHALLOW_WATER_ENGINE_RATE_MULTIPLIER
     end
 
     return targetRate

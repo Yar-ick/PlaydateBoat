@@ -17,6 +17,7 @@ import "code/Gameplay/BoatJump"
 import "code/Gameplay/AbilityProgression"
 import "code/Gameplay/Difficulty"
 import "code/Gameplay/OilStains"
+import "code/Gameplay/ShallowWaters"
 import "code/Gameplay/OtherSide"
 import "code/Obstacles/Ramp"
 import "code/Obstacles/Steamboat"
@@ -2993,6 +2994,10 @@ function playdate.update()
         movementVelocityX,
         movementVelocityY
     )
+    local movementVelocityMultiplier =
+        GameModes.active:getMovementVelocityMultiplier()
+    movementVelocityX *= movementVelocityMultiplier
+    movementVelocityY *= movementVelocityMultiplier
 
     local movementSpeed = math.sqrt(
         movementVelocityX * movementVelocityX + movementVelocityY * movementVelocityY

@@ -134,6 +134,10 @@ function GameMode:getPlayerVelocity(defaultVelocity)
     return defaultVelocity
 end
 
+function GameMode:getMovementVelocityMultiplier()
+    return 1
+end
+
 function GameMode:getFastModeMultiplier(defaultMultiplier)
     return defaultMultiplier
 end

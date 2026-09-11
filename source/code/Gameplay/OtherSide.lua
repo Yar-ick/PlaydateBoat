@@ -899,6 +899,7 @@ function OtherSide.initialize(
         interactableObjectGroups,
         onOilCleaned
     )
+    ShallowWaters.initialize(gameplayTuning, interactableObjectGroups)
 
     local imageWidth, imageHeight = smallBoatImagetable:getImage(1):getSize()
 
@@ -953,6 +954,7 @@ function OtherSide.beginRun()
     OtherSide.reset()
     running = true
     OilStains.beginRun()
+    ShallowWaters.beginRun()
     resetSpawnCountdown()
 end
 
@@ -969,6 +971,12 @@ function OtherSide.update(
     updateExplosions(worldDisplacement)
     updateWakeLines(worldDisplacement, running)
     OilStains.update(elapsedMilliseconds, worldDisplacement)
+    ShallowWaters.update(
+        elapsedMilliseconds,
+        worldDisplacement,
+        playerX,
+        playerY
+    )
 
     if running == false then
         return
@@ -1276,6 +1284,7 @@ function OtherSide.rewind(displacement)
     -- Keep it moving during the rewind, then reset any remainder when the menu
     -- transition starts.
     OilStains.rewind(displacement)
+    ShallowWaters.rewind(displacement)
 
     if impulseActive then
         impulseX += displacement
@@ -1318,6 +1327,7 @@ function OtherSide.reset()
     impulseHitBoats = {}
     OtherSide.stopSounds()
     OilStains.reset()
+    ShallowWaters.reset()
 
     for index = 1, #boats do
         deactivateBoat(boats[index])
