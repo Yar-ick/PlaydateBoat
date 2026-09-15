@@ -405,6 +405,14 @@ function Steamboat.rewind(elapsedMilliseconds, displacement)
     return 0
 end
 
+function Steamboat.updateExplosionOnly(elapsedMilliseconds)
+    updateExplosion(elapsedMilliseconds, 0)
+end
+
+function Steamboat.hasActiveExplosion()
+    return explosion ~= nil
+end
+
 function Steamboat.drawWakeLines()
     local currentLineWidth = nil
 

@@ -1294,6 +1294,14 @@ function OtherSide.rewind(displacement)
     return remaining
 end
 
+function OtherSide.updateExplosionsOnly()
+    updateExplosions(0)
+end
+
+function OtherSide.hasActiveExplosions()
+    return #explosions > 0
+end
+
 function OtherSide.stopSounds()
     hornRemainingMilliseconds = 0
     hornRadius = 0

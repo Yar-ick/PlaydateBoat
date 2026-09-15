@@ -33,6 +33,7 @@ import "code/Effects/WakeLayer"
 import "code/Effects/FlightShadow"
 import "code/UI/AbilityTopUI"
 import "code/UI/FixedWidthNumber"
+import "code/UI/RunResultsUI"
 import "code/UI/DifficultyMenuUI"
 import "code/UI/MainMenuHUDAnimation"
 import "code/UI/MenuCrankNavigation"
@@ -67,7 +68,10 @@ local GameState = {
     ALIVE = 5,
     CRASH_REWIND = 6,
     RETURNING_TO_MENU = 7,
-    UPGRADE_MENU = 8
+    UPGRADE_MENU = 8,
+    RUN_RESULTS = 9,
+    CRASH_EXPLOSION = 10,
+    RESULTS_CLOSED_DELAY = 11
 }
 
 local BoatGameState = GameState.MAIN_MENU
@@ -459,10 +463,12 @@ local launchStartX = 0
 local launchStartY = 0
 GameplayProgress = {
     suspended = true,
+    runCoins = 0,
     impulseCharge = 0,
     hornActiveRemainingMilliseconds = 0,
     waitingControlsSlideProgress = 0,
     waitingControlsExitStarted = false,
+    resultOpenDelayElapsedMilliseconds = 0,
     manualReturnActive = false
 }
 
@@ -697,7 +703,9 @@ local function canSpawnCollectable(collectableType)
 end
 
 local function onCoinCollected()
-    GameModes.active:addCoins(GameModes.active:getCoinReward())
+    local coinReward = GameModes.active:getCoinReward()
+    GameplayProgress.runCoins += coinReward
+    GameModes.active:addCoins(coinReward)
     playSoundOneShot(coinPickupSoundPlayer)
     markProgressChanged()
 end
@@ -1676,7 +1684,7 @@ local function drawHud()
     local starImageWidth = starImage:getSize()
     local starX = 400 - hudScoreNumber.width - starImageWidth - 5 + rightHudOffsetX
 
-    FixedWidthNumber.update(hudCoinNumber, GameModes.active:getCoins())
+    FixedWidthNumber.update(hudCoinNumber, GameplayProgress.runCoins)
     local coinImage = coinImagetable:getImage(1)
     local coinImageWidth = coinImage:getSize()
     local coinTextX = 400 - hudCoinNumber.width - 2 + rightHudOffsetX
@@ -1917,6 +1925,7 @@ local function prepareNewRun()
     interpolatedWorldVelocity = worldVelocity
     playerSpeedMode = 1
     playerScore = 0
+    GameplayProgress.runCoins = 0
     playerScoreStep = 10
     shieldHitsRemaining = 0
     shrinkRemainingMilliseconds = nil
@@ -1927,6 +1936,7 @@ local function prepareNewRun()
     GameplayProgress.hornActiveRemainingMilliseconds = 0
     GameplayProgress.waitingControlsSlideProgress = 0
     GameplayProgress.waitingControlsExitStarted = false
+    GameplayProgress.resultOpenDelayElapsedMilliseconds = 0
     GameplayProgress.manualReturnActive = false
     currentPlayerScale = 1
     targetPlayerScale = 1
@@ -1967,6 +1977,7 @@ local function prepareNewRun()
     playerSprite:moveTo(playerX, playerY)
     hideGameplayWorld()
     resetExplosion()
+    RunResultsUI.reset()
 end
 
 local function updateMainMenuBoatFloat(elapsedMilliseconds)
@@ -2140,13 +2151,17 @@ pd.getSystemMenu():addMenuItem("Main menu", function()
     if BoatGameState ~= GameState.MAIN_MENU
         and BoatGameState ~= GameState.CRASH_REWIND
         and BoatGameState ~= GameState.RETURNING_TO_MENU
+        and BoatGameState ~= GameState.RUN_RESULTS
+        and BoatGameState ~= GameState.CRASH_EXPLOSION
+        and BoatGameState ~= GameState.RESULTS_CLOSED_DELAY
     then
         GameplayProgress.pause()
         stopGameplayLoopSounds()
         GameplayProgress.manualReturnActive = true
-        BoatGameState = GameState.CRASH_REWIND
+        BoatGameState = GameState.RUN_RESULTS
         presentationElapsedMilliseconds = 0
         crashReturnDelayElapsedMilliseconds = TUNING.CRASH_RETURN_DELAY_MS
+        RunResultsUI.show(playerScore, GameplayProgress.runCoins)
         FlightShadow.reset()
         clearWakeLines()
         resetExplosion()
@@ -2160,6 +2175,7 @@ local function smoothstep(progress)
 end
 
 Steamboat.initialize(TUNING, sfxChannel, destroyRock, explosionImagetable)
+RunResultsUI.initialize(TUNING, sfxChannel)
 OtherSide.initialize(
     TUNING,
     sfxChannel,
@@ -2211,9 +2227,15 @@ function GameplayProgress.resumeAfterSystemInterruption()
         startBoatEngineSound()
         startWaterFlowSound()
         startMenuMusic()
-    elseif BoatGameState ~= GameState.CRASH_REWIND
-        or crashReturnDelayElapsedMilliseconds >= TUNING.CRASH_RETURN_DELAY_MS
-    then
+    elseif BoatGameState == GameState.RUN_RESULTS then
+        if RunResultsUI.isClosing() then
+            startMenuMusic()
+        end
+    elseif BoatGameState == GameState.CRASH_REWIND then
+        if crashReturnDelayElapsedMilliseconds >= TUNING.CRASH_RETURN_DELAY_MS then
+            startMenuMusic()
+        end
+    elseif BoatGameState ~= GameState.CRASH_EXPLOSION then
         startMenuMusic()
     end
 end
@@ -2290,7 +2312,11 @@ function playdate.update()
             1,
             hudSlideProgress + elapsedMilliseconds / TUNING.HUD_SLIDE_DURATION_MS
         )
-    elseif BoatGameState == GameState.CRASH_REWIND then
+    elseif BoatGameState == GameState.CRASH_REWIND
+        or BoatGameState == GameState.RUN_RESULTS
+        or BoatGameState == GameState.CRASH_EXPLOSION
+        or BoatGameState == GameState.RESULTS_CLOSED_DELAY
+    then
         hudSlideProgress = math.max(
             0,
             hudSlideProgress - elapsedMilliseconds / TUNING.HUD_SLIDE_DURATION_MS
@@ -2739,6 +2765,76 @@ function playdate.update()
         return
     end
 
+    if BoatGameState == GameState.CRASH_EXPLOSION then
+        presentationElapsedMilliseconds += elapsedMilliseconds
+        Steamboat.updateExplosionOnly(elapsedMilliseconds)
+        OtherSide.updateExplosionsOnly()
+
+        ScreenShake.applyDrawOffset()
+        pdg.sprite.update()
+        updateExplosion()
+        ScreenShake.clearDrawOffset()
+        drawHud()
+
+        if explosionAnimation == nil or explosionAnimation:isValid() == false then
+            GameplayProgress.resultOpenDelayElapsedMilliseconds += elapsedMilliseconds
+        end
+
+        if GameplayProgress.resultOpenDelayElapsedMilliseconds
+                >= TUNING.RUN_RESULTS_OPEN_DELAY_MS
+            and Steamboat.hasActiveExplosion() == false
+            and OtherSide.hasActiveExplosions() == false
+        then
+            BoatGameState = GameState.RUN_RESULTS
+            presentationElapsedMilliseconds = 0
+            RunResultsUI.show(playerScore, GameplayProgress.runCoins)
+        end
+
+        return
+    end
+
+    if BoatGameState == GameState.RUN_RESULTS then
+        presentationElapsedMilliseconds += elapsedMilliseconds
+        local resultsFinished = RunResultsUI.update(
+            elapsedMilliseconds,
+            pd.buttonJustPressed(pd.kButtonA)
+        )
+
+        if RunResultsUI.isClosing() then
+            startMenuMusic()
+        end
+
+        ScreenShake.applyDrawOffset()
+        pdg.sprite.update()
+        if GameplayProgress.manualReturnActive == false then
+            updateExplosion()
+        end
+        ScreenShake.clearDrawOffset()
+        drawHud()
+        RunResultsUI.draw()
+
+        if resultsFinished then
+            BoatGameState = GameState.RESULTS_CLOSED_DELAY
+            presentationElapsedMilliseconds = 0
+        end
+
+        return
+    end
+
+    if BoatGameState == GameState.RESULTS_CLOSED_DELAY then
+        presentationElapsedMilliseconds += elapsedMilliseconds
+        pdg.sprite.update()
+        drawHud()
+
+        if presentationElapsedMilliseconds >= TUNING.RUN_RESULTS_CLOSE_DELAY_MS then
+            BoatGameState = GameState.CRASH_REWIND
+            presentationElapsedMilliseconds = 0
+            crashReturnDelayElapsedMilliseconds = TUNING.CRASH_RETURN_DELAY_MS
+        end
+
+        return
+    end
+
     if BoatGameState == GameState.CRASH_REWIND then
         presentationElapsedMilliseconds += elapsedMilliseconds
         crashReturnDelayElapsedMilliseconds += elapsedMilliseconds
@@ -3117,9 +3213,10 @@ function playdate.update()
         end
 
         GameplayProgress.manualReturnActive = false
-        BoatGameState = GameState.CRASH_REWIND
+        BoatGameState = GameState.CRASH_EXPLOSION
         presentationElapsedMilliseconds = 0
-        crashReturnDelayElapsedMilliseconds = 0
+        GameplayProgress.resultOpenDelayElapsedMilliseconds = 0
+        crashReturnDelayElapsedMilliseconds = TUNING.CRASH_RETURN_DELAY_MS
         GameplayProgress.pause()
         stopGameplayLoopSounds()
         playerSprite:setScale(0)
