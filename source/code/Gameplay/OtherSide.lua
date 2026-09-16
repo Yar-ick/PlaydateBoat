@@ -391,42 +391,6 @@ local function isWarnedPlayerBlockingCell(boat, x, y, playerX, playerY)
         and math.abs(y - playerY) < clearanceY
 end
 
-local function compressPath(nodes, originX, minimumY, waypoints)
-    local waypointCount = 0
-    local columnWidth = tuning.OTHER_SIDE_SMALL_BOAT_PATH_COLUMN_WIDTH
-    local rowHeight = tuning.OTHER_SIDE_SMALL_BOAT_PATH_ROW_HEIGHT
-
-    for nodeIndex = 2, #nodes do
-        local node = nodes[nodeIndex]
-        local nextNode = nodes[nodeIndex + 1]
-        local shouldAdd = nextNode == nil
-
-        if nextNode ~= nil then
-            local previousNode = nodes[nodeIndex - 1]
-            local incomingX = node.x - previousNode.x
-            local incomingY = node.y - previousNode.y
-            local outgoingX = nextNode.x - node.x
-            local outgoingY = nextNode.y - node.y
-            shouldAdd = incomingX ~= outgoingX or incomingY ~= outgoingY
-        end
-
-        if shouldAdd then
-            waypointCount += 1
-            local waypoint = waypoints[waypointCount]
-
-            if waypoint == nil then
-                waypoint = {}
-                waypoints[waypointCount] = waypoint
-            end
-
-            waypoint.x = originX + (node.x - 1) * columnWidth
-            waypoint.y = minimumY + (node.y - 1) * rowHeight
-        end
-    end
-
-    return waypointCount
-end
-
 local function getNavigationGoalX(boat, playerX, playerAngle)
     if boat.warned and hornRemainingMilliseconds > 0 then
         local radiusX, radiusY = getHornPathRadii(boat)
@@ -446,6 +410,29 @@ local function getNavigationGoalX(boat, playerX, playerAngle)
     )
 end
 
+local function isNavigationCellBlocked(
+    boat,
+    x,
+    y,
+    playerX,
+    playerY,
+    playerAngle,
+    rocks
+)
+    if boat.warned
+        and (
+            (boat.escapeToBottom and y < playerY)
+            or (boat.escapeToBottom == false and y > playerY)
+        )
+    then
+        return true
+    end
+
+    return isRockBlockingCell(boat, x, y, rocks)
+        or isHornBlockingCell(boat, x, y, playerX, playerY, playerAngle)
+        or isWarnedPlayerBlockingCell(boat, x, y, playerX, playerY)
+end
+
 local function planNavigationPath(
     boat,
     playerX,
@@ -460,46 +447,10 @@ local function planNavigationPath(
     local goalX = getNavigationGoalX(boat, playerX, playerAngle)
     local columnCount = math.max(2, math.ceil((goalX - originX) / columnWidth) + 1)
     local rowCount = math.max(2, math.floor((maximumY - minimumY) / rowHeight) + 1)
-    local includedNodes = boat.pathIncludedNodes
-
-    for row = 1, rowCount do
-        local y = minimumY + (row - 1) * rowHeight
-
-        for column = 1, columnCount do
-            local x = originX + (column - 1) * columnWidth
-            local isOppositeHornSide = boat.warned
-                and (
-                    (boat.escapeToBottom and y < playerY)
-                    or (boat.escapeToBottom == false and y > playerY)
-                )
-            local isBlocked = isOppositeHornSide
-                or isRockBlockingCell(boat, x, y, rocks)
-                or isHornBlockingCell(
-                    boat,
-                    x,
-                    y,
-                    playerX,
-                    playerY,
-                    playerAngle
-                )
-                or isWarnedPlayerBlockingCell(boat, x, y, playerX, playerY)
-            includedNodes[(row - 1) * columnCount + column] = isBlocked and 0 or 1
-        end
-    end
-
-    local nodeCount = rowCount * columnCount
-    for nodeIndex = nodeCount + 1, boat.pathIncludedNodeCount do
-        includedNodes[nodeIndex] = nil
-    end
-    boat.pathIncludedNodeCount = nodeCount
-
     local startRow = math.max(
         1,
         math.min(rowCount, math.floor((boat.y - minimumY) / rowHeight + 1.5))
     )
-    local startIndex = (startRow - 1) * columnCount + 1
-    includedNodes[startIndex] = 1
-
     local preferredY = playerY
 
     if boat.warned then
@@ -515,55 +466,78 @@ local function planNavigationPath(
         1,
         math.min(rowCount, math.floor((preferredY - minimumY) / rowHeight + 1.5))
     )
-    local graph = playdate.pathfinder.graph.new2DGrid(
-        columnCount,
-        rowCount,
-        true,
-        includedNodes
-    )
-    local startNode = graph:nodeWithXY(1, startRow)
-    local path = nil
-    local selectedGoalRow = nil
+    local selectedRow = startRow
+    local previousWaypointRow = startRow
+    local waypointCount = 0
 
-    for offset = 0, rowCount - 1 do
-        for candidateIndex = 1, 2 do
-            local goalRow = candidateIndex == 1
-                and preferredRow - offset
-                or preferredRow + offset
-            local isDuplicate = candidateIndex == 2 and offset == 0
+    -- Scan a handful of forward columns and choose the nearest open lane in
+    -- each one. This avoids allocating and solving a complete A* graph during
+    -- the spawn frame while preserving rock and horn avoidance.
+    for column = 2, columnCount do
+        local progress = (column - 1) / (columnCount - 1)
+        local desiredRow = math.floor(
+            startRow + (preferredRow - startRow) * progress + 0.5
+        )
+        local x = math.min(goalX, originX + (column - 1) * columnWidth)
+        local foundRow = nil
 
-            if isDuplicate == false and goalRow >= 1 and goalRow <= rowCount then
-                local goalIndex = (goalRow - 1) * columnCount + columnCount
-                local goalY = minimumY + (goalRow - 1) * rowHeight
-                local isOnEscapeSide = boat.warned == false
-                    or (boat.escapeToBottom and goalY >= playerY)
-                    or (boat.escapeToBottom == false and goalY <= playerY)
+        for offset = 0, rowCount - 1 do
+            for directionIndex = 1, 2 do
+                local candidateRow = directionIndex == 1
+                    and desiredRow - offset
+                    or desiredRow + offset
+                local isDuplicate = directionIndex == 2 and offset == 0
 
-                if isOnEscapeSide and includedNodes[goalIndex] == 1 then
-                    selectedGoalRow = goalRow
-                    break
+                if isDuplicate == false
+                    and candidateRow >= 1
+                    and candidateRow <= rowCount
+                then
+                    local candidateY = minimumY + (candidateRow - 1) * rowHeight
+
+                    if isNavigationCellBlocked(
+                        boat,
+                        x,
+                        candidateY,
+                        playerX,
+                        playerY,
+                        playerAngle,
+                        rocks
+                    ) == false
+                    then
+                        foundRow = candidateRow
+                        break
+                    end
                 end
+            end
+
+            if foundRow ~= nil then
+                break
             end
         end
 
-        if selectedGoalRow ~= nil then
-            break
+        if foundRow ~= nil then
+            selectedRow = foundRow
+        end
+
+        local isFinalColumn = column == columnCount
+        if selectedRow ~= previousWaypointRow or isFinalColumn then
+            waypointCount += 1
+            local waypoint = boat.pathWaypoints[waypointCount]
+
+            if waypoint == nil then
+                waypoint = {}
+                boat.pathWaypoints[waypointCount] = waypoint
+            end
+
+            waypoint.x = x
+            waypoint.y = minimumY + (selectedRow - 1) * rowHeight
+            previousWaypointRow = selectedRow
         end
     end
 
-    if selectedGoalRow ~= nil then
-        local goalNode = graph:nodeWithXY(columnCount, selectedGoalRow)
-        path = graph:findPath(startNode, goalNode)
-
-        if path ~= nil then
-            boat.targetY = minimumY + (selectedGoalRow - 1) * rowHeight
-        end
-    end
-
-    boat.pathCount = path ~= nil
-        and compressPath(path, originX, minimumY, boat.pathWaypoints)
-        or 0
-    boat.path = boat.pathCount > 0 and boat.pathWaypoints or nil
+    boat.targetY = minimumY + (selectedRow - 1) * rowHeight
+    boat.pathCount = waypointCount
+    boat.path = waypointCount > 0 and boat.pathWaypoints or nil
     boat.pathIndex = 1
 end
 
@@ -920,8 +894,6 @@ function OtherSide.initialize(
         boat.pathCount = 0
         boat.pathIndex = 1
         boat.pathWaypoints = {}
-        boat.pathIncludedNodes = {}
-        boat.pathIncludedNodeCount = 0
         boat.impulseVelocityX = 0
         boat.impulseVelocityY = 0
         boat.impulseRemainingMilliseconds = 0
