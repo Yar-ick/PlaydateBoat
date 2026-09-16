@@ -307,11 +307,16 @@ function TheOtherSideGameMode:consumeTouchedDecoration(
     end
 end
 
-function TheOtherSideGameMode:resolveCollision(collision, playerSprite, shieldHitsRemaining)
+function TheOtherSideGameMode:resolveCollision(
+    collision,
+    playerSprite,
+    shieldHitsRemaining,
+    playerAngle
+)
     local other = collision.other
 
     if other.objectType == "otherSideOil" then
-        OilStains.startCleaning(other, playerSprite)
+        OilStains.startCleaning(other, playerSprite, playerAngle)
         return nil, shieldHitsRemaining
     end
 

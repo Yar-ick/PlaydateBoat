@@ -1713,7 +1713,7 @@ local function destroyRock(rock, shouldShake)
     rock:setVisible(false)
 end
 
-local function handlePlayerCollisions(collisions, length, takeoffSpeed)
+local function handlePlayerCollisions(collisions, length, takeoffSpeed, playerAngle)
     -- Temporarily expose the complete scaled boat bounds for pickup checks. Rock
     -- collisions continue to use the smaller gameplay hitbox restored below.
     playerSprite:setCollideRect(
@@ -1788,7 +1788,8 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed)
             collisionAction, shieldHitsRemaining = GameModes.active:resolveCollision(
                 collision,
                 playerSprite,
-                shieldHitsRemaining
+                shieldHitsRemaining,
+                playerAngle
             )
 
             if collisionAction == "destroyRock" then
@@ -3205,7 +3206,8 @@ function playdate.update()
         didCrash = handlePlayerCollisions(
             collisions,
             length,
-            interpolatedWorldVelocity + movementSpeed
+            interpolatedWorldVelocity + movementSpeed,
+            currentVelocityAngle
         )
     end
 

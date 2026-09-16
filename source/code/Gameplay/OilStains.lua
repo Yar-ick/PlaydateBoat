@@ -209,6 +209,7 @@ local function activateStain(
     resetCoverage(stain)
     stain:setImage(stain.image)
     local cleaningReach = tuning.OTHER_SIDE_OIL_CLEAN_BRUSH_RADIUS
+        + tuning.OTHER_SIDE_OIL_CLEAN_FRONT_OFFSET
     stain:setCollideRect(
         -cleaningReach,
         -cleaningReach,
@@ -468,6 +469,7 @@ function OilStains.initialize(
         stain.remainingCoverageCount = #stain.coveragePoints
         stain.awardedScoreSteps = 0
         local cleaningReach = tuning.OTHER_SIDE_OIL_CLEAN_BRUSH_RADIUS
+            + tuning.OTHER_SIDE_OIL_CLEAN_FRONT_OFFSET
         stain:setCollideRect(
             -cleaningReach,
             -cleaningReach,
@@ -491,7 +493,7 @@ function OilStains.spawn(x, y)
     return spawnAtAvailableStain(x, y, true)
 end
 
-function OilStains.startCleaning(stain, playerSprite)
+function OilStains.startCleaning(stain, playerSprite, playerAngle)
     if stain == nil
         or playerSprite == nil
         or stain.active == false
@@ -500,8 +502,13 @@ function OilStains.startCleaning(stain, playerSprite)
         return false
     end
 
-    local localX = playerSprite.x - (stain.x - stain.imageWidth / 2)
-    local localY = playerSprite.y - (stain.y - stain.imageHeight / 2)
+    local angleRadians = math.rad(playerAngle or 0)
+    local cleaningX = playerSprite.x
+        + math.sin(angleRadians) * tuning.OTHER_SIDE_OIL_CLEAN_FRONT_OFFSET
+    local cleaningY = playerSprite.y
+        - math.cos(angleRadians) * tuning.OTHER_SIDE_OIL_CLEAN_FRONT_OFFSET
+    local localX = cleaningX - (stain.x - stain.imageWidth / 2)
+    local localY = cleaningY - (stain.y - stain.imageHeight / 2)
     local startX = stain.lastCleanLocalX or localX
     local startY = stain.lastCleanLocalY or localY
 
