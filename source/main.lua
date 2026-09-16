@@ -523,14 +523,16 @@ local rockImageTables = {
     pdg.imagetable.new("images/Rock2"),
     pdg.imagetable.new("images/Rock3"),
     pdg.imagetable.new("images/Rock4"),
-    pdg.imagetable.new("images/BigRock1")
+    pdg.imagetable.new("images/BigRock1"),
+    pdg.imagetable.new("images/BigRock2")
 }
 local rockImages = {
     rockImageTables[1]:getImage(1),
     rockImageTables[2]:getImage(1),
     rockImageTables[3]:getImage(1),
     rockImageTables[4]:getImage(1),
-    rockImageTables[5]:getImage(1)
+    rockImageTables[5]:getImage(1),
+    rockImageTables[6]:getImage(1)
 }
 local rockWaveStartTimeMilliseconds = pd.getCurrentTimeMilliseconds()
 local rockImageWidths = {}

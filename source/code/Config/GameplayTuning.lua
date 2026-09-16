@@ -735,8 +735,8 @@ GameplayTuning = {
     -- Once this speed is reached, decoration spawning stays disabled until restart.
     DECORATION_STOP_SPAWN_WORLD_VELOCITY = 4,
     BIRD_POOL_SIZE = 2,
-    BIRD_SPAWN_MINIMUM_INTERVAL_MS = 5000,
-    BIRD_SPAWN_MAXIMUM_INTERVAL_MS = 10000,
+    BIRD_SPAWN_MINIMUM_INTERVAL_MS = 10000,
+    BIRD_SPAWN_MAXIMUM_INTERVAL_MS = 20000,
     BIRD_SPAWN_MINIMUM_Y = 24,
     BIRD_SPAWN_MAXIMUM_Y = 216,
     BIRD_SCALE = 2,
