@@ -34,6 +34,7 @@ local impulseHitBoats = {}
 local activeRockLimit = nil
 local spawnPending = false
 local running = false
+local gameSpeedProgress = 0
 
 OtherSide = {}
 
@@ -165,9 +166,23 @@ local function emitWake(boat)
 end
 
 local function resetSpawnCountdown()
-    spawnRemainingMilliseconds = math.random(
-        tuning.OTHER_SIDE_SMALL_BOAT_MINIMUM_INTERVAL_MS,
+    local minimumInterval = math.floor(
+        tuning.OTHER_SIDE_SMALL_BOAT_MINIMUM_INTERVAL_MS
+            + (tuning.OTHER_SIDE_SMALL_BOAT_FAST_MINIMUM_INTERVAL_MS
+                - tuning.OTHER_SIDE_SMALL_BOAT_MINIMUM_INTERVAL_MS)
+                * gameSpeedProgress
+        + 0.5
+    )
+    local maximumInterval = math.floor(
         tuning.OTHER_SIDE_SMALL_BOAT_MAXIMUM_INTERVAL_MS
+            + (tuning.OTHER_SIDE_SMALL_BOAT_FAST_MAXIMUM_INTERVAL_MS
+                - tuning.OTHER_SIDE_SMALL_BOAT_MAXIMUM_INTERVAL_MS)
+                * gameSpeedProgress
+        + 0.5
+    )
+    spawnRemainingMilliseconds = math.random(
+        minimumInterval,
+        maximumInterval
     )
 end
 
@@ -925,6 +940,7 @@ end
 function OtherSide.beginRun()
     OtherSide.reset()
     running = true
+    gameSpeedProgress = 0
     OilStains.beginRun()
     ShallowWaters.beginRun()
     resetSpawnCountdown()
@@ -940,6 +956,17 @@ function OtherSide.update(
     playerAngle,
     rocks
 )
+    gameSpeedProgress = math.max(
+        0,
+        math.min(
+            1,
+            (currentWorldVelocity - tuning.INITIAL_WORLD_VELOCITY)
+                / math.max(
+                    0.001,
+                    maximumWorldVelocity - tuning.INITIAL_WORLD_VELOCITY
+                )
+        )
+    )
     updateExplosions(worldDisplacement)
     updateWakeLines(worldDisplacement, running)
     OilStains.update(elapsedMilliseconds, worldDisplacement)
@@ -990,7 +1017,11 @@ function OtherSide.update(
             end
 
             local targetSpeed = tuning.OTHER_SIDE_SMALL_BOAT_PLAYER_VELOCITY
-                * tuning.OTHER_SIDE_SMALL_BOAT_FAST_MULTIPLIER
+                * (
+                    1
+                        + (tuning.OTHER_SIDE_SMALL_BOAT_FAST_MULTIPLIER - 1)
+                            * gameSpeedProgress
+                )
             local targetX, targetY = getNavigationTarget(boat)
             local directionX = targetX - boat.x
             local directionY = targetY - boat.y
@@ -1297,6 +1328,7 @@ end
 
 function OtherSide.reset()
     running = false
+    gameSpeedProgress = 0
     spawnRemainingMilliseconds = 0
     activeRockLimit = nil
     spawnPending = false
