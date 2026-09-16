@@ -7,6 +7,7 @@ import "CoreLibs/sprites"
 import "code/Config/GameplayTuning"
 import "code/World/InteractiveSpawn"
 import "code/World/DecorationManager"
+import "code/World/BirdDecoration"
 import "code/Collectables/Collectable"
 import "code/Collectables/CoinCollectable"
 import "code/Collectables/ShieldCollectable"
@@ -1845,6 +1846,7 @@ local function hideGameplayWorld()
     Ramp.reset()
     Steamboat.reset()
     OtherSide.reset()
+    BirdDecoration.reset()
     Whirlpool.reset()
 
     for i = 1, TUNING.MAX_ROCKS do
@@ -2117,6 +2119,7 @@ local function beginGameplay()
     end
 
     GameModes.active:beginRun()
+    BirdDecoration.beginRun()
 
     lastUpdateTimeMilliseconds = pd.getCurrentTimeMilliseconds()
     startGameplayLoopSounds()
@@ -2158,6 +2161,7 @@ pd.getSystemMenu():addMenuItem("Main menu", function()
     then
         GameplayProgress.pause()
         stopGameplayLoopSounds()
+        BirdDecoration.stopSpawning()
         GameplayProgress.manualReturnActive = true
         BoatGameState = GameState.RUN_RESULTS
         presentationElapsedMilliseconds = 0
@@ -2177,6 +2181,7 @@ end
 
 Steamboat.initialize(TUNING, sfxChannel, destroyRock, explosionImagetable)
 RunResultsUI.initialize(TUNING, sfxChannel)
+BirdDecoration.initialize(TUNING)
 OtherSide.initialize(
     TUNING,
     sfxChannel,
@@ -2304,6 +2309,11 @@ function playdate.update()
 
     pd.timer.updateTimers()
     ScreenShake.update(elapsedMilliseconds)
+    BirdDecoration.update(
+        elapsedMilliseconds,
+        interpolatedWorldVelocity,
+        Difficulty.getMaxWorldVelocity()
+    )
 
     if BoatGameState == GameState.WAITING_FOR_CRANK
         or BoatGameState == GameState.ALIGNING_TO_CRANK
@@ -3223,6 +3233,7 @@ function playdate.update()
         crashReturnDelayElapsedMilliseconds = TUNING.CRASH_RETURN_DELAY_MS
         GameplayProgress.pause()
         stopGameplayLoopSounds()
+        BirdDecoration.stopSpawning()
         playerSprite:setScale(0)
         FlightShadow.reset()
         clearWakeLines()

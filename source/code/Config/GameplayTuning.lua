@@ -734,6 +734,15 @@ GameplayTuning = {
     DECORATION_SPAWN_MINIMUM_X = -300,
     -- Once this speed is reached, decoration spawning stays disabled until restart.
     DECORATION_STOP_SPAWN_WORLD_VELOCITY = 4,
+    BIRD_POOL_SIZE = 2,
+    BIRD_SPAWN_MINIMUM_INTERVAL_MS = 5000,
+    BIRD_SPAWN_MAXIMUM_INTERVAL_MS = 10000,
+    BIRD_SPAWN_MINIMUM_Y = 24,
+    BIRD_SPAWN_MAXIMUM_Y = 216,
+    BIRD_SCALE = 2,
+    BIRD_MINIMUM_SPEED_PIXELS_PER_SECOND = 140,
+    BIRD_MAXIMUM_SPEED_PIXELS_PER_SECOND = 280,
+    BIRD_ANIMATION_FRAME_DURATION_MS = 100,
     WORLD_SPAWN_MAXIMUM_Y = 240,
     WORLD_SPAWN_MINIMUM_Y = 35,
 
@@ -750,6 +759,7 @@ GameplayTuning = {
     OTHER_SIDE_SHALLOW_WATER_Z_INDEX = -8,
     OTHER_SIDE_OIL_Z_INDEX = -5,
     PLAYER_Z_INDEX = 30,
+    BIRD_Z_INDEX = 100,
     MAIN_MENU_Z_INDEX = -900,
 
     -- Each inactive collectable waits for its interval and then rolls its chance.
