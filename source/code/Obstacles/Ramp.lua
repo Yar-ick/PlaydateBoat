@@ -80,7 +80,10 @@ local function getOffscreenRocks(rockSprites)
     for index = 1, #rockSprites do
         local rock = rockSprites[index]
 
-        if rock.active and rock.x + rock.imageWidth / 2 < 0 then
+        if rock.active
+            and rock.isBig == false
+            and rock.x + rock.imageWidth / 2 < 0
+        then
             rocks[#rocks + 1] = rock
         end
     end
