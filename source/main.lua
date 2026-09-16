@@ -2767,6 +2767,7 @@ function playdate.update()
 
     if BoatGameState == GameState.CRASH_EXPLOSION then
         presentationElapsedMilliseconds += elapsedMilliseconds
+        updateRockExplosions(elapsedMilliseconds, 0)
         Steamboat.updateExplosionOnly(elapsedMilliseconds)
         OtherSide.updateExplosionsOnly()
 
@@ -2782,6 +2783,7 @@ function playdate.update()
 
         if GameplayProgress.resultOpenDelayElapsedMilliseconds
                 >= TUNING.RUN_RESULTS_OPEN_DELAY_MS
+            and #rockExplosions == 0
             and Steamboat.hasActiveExplosion() == false
             and OtherSide.hasActiveExplosions() == false
         then
