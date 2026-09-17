@@ -1,7 +1,8 @@
 name=Wakebreaker
 author=Nikita Yaroslavtsev
-description=
+description=A fast-paced arcade game with motorboat.
 bundleID=com.yarick.wakebreaker
 version=1.0.0
 buildNumber=1
 imagePath=launcherAssets
+launchSoundPath=launcherAssets/EngineStart
