@@ -473,13 +473,21 @@ GameplayProgress = {
     manualReturnActive = false
 }
 
+function GameplayProgress.addScore(amount)
+    playerScore = math.clamp(
+        playerScore + math.floor(tonumber(amount) or 0),
+        0,
+        TUNING.MAX_SCORE
+    )
+end
+
 local scoreTimer = pd.timer.new(1000, function()
     if GameplayProgress.suspended == false
         and BoatGameState == GameState.ALIVE
         and pd.isCrankDocked() == false
         and GameModes.active:shouldAwardSurvivalScore()
     then
-        playerScore += playerScoreStep
+        GameplayProgress.addScore(playerScoreStep)
     end
 end)
 scoreTimer.repeats = true
@@ -709,7 +717,10 @@ end
 
 local function onCoinCollected()
     local coinReward = GameModes.active:getCoinReward()
-    GameplayProgress.runCoins += coinReward
+    GameplayProgress.runCoins = math.min(
+        TUNING.MAX_COINS,
+        GameplayProgress.runCoins + coinReward
+    )
     GameModes.active:addCoins(coinReward)
     playSoundOneShot(coinPickupSoundPlayer)
     markProgressChanged()
@@ -1801,7 +1812,7 @@ local function handlePlayerCollisions(collisions, length, takeoffSpeed, playerAn
                 destroyRock(other)
             elseif collisionAction == "destroyRockForScore" then
                 destroyRock(other, false)
-                playerScore += TUNING.OTHER_SIDE_ROCK_SCORE
+                GameplayProgress.addScore(TUNING.OTHER_SIDE_ROCK_SCORE)
             elseif collisionAction == "explodeSteamboat"
                 or collisionAction == "destroySmallBoat"
             then
@@ -2197,9 +2208,9 @@ OtherSide.initialize(
     function(rock)
         if rock.active then
             destroyRock(rock, false)
-            playerScore += rock.isBig
+            GameplayProgress.addScore(rock.isBig
                 and TUNING.OTHER_SIDE_BIG_ROCK_SCORE
-                or TUNING.OTHER_SIDE_ROCK_SCORE
+                or TUNING.OTHER_SIDE_ROCK_SCORE)
         end
     end,
     function(x, y, scoreValue)
@@ -3015,7 +3026,7 @@ function playdate.update()
     local reachedTrickScore = ScoreFlyEffect.update(elapsedMilliseconds)
 
     if reachedTrickScore ~= nil then
-        playerScore += reachedTrickScore
+        GameplayProgress.addScore(reachedTrickScore)
     end
 
     -- Recycle rocks after collectables move/spawn so the shared overlap check sees

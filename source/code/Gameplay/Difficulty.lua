@@ -68,7 +68,11 @@ function Difficulty.initialize(savedProgress, gameplayTuning)
     for index = 1, #tuning.DIFFICULTY_MODES do
         local mode = tuning.DIFFICULTY_MODES[index]
         local savedScore = tonumber(savedHighScores[mode.ID]) or 0
-        highScores[mode.ID] = math.max(0, math.floor(savedScore))
+        highScores[mode.ID] = math.clamp(
+            math.floor(savedScore),
+            0,
+            tuning.MAX_SCORE
+        )
     end
 
     selectedModeIndex = findModeIndex(savedDifficulty.selectedModeId) or 1
@@ -124,7 +128,11 @@ end
 
 function Difficulty.recordScore(score)
     local modeId = Difficulty.getSelectedMode().ID
-    local normalizedScore = math.max(0, math.floor(tonumber(score) or 0))
+    local normalizedScore = math.clamp(
+        math.floor(tonumber(score) or 0),
+        0,
+        tuning.MAX_SCORE
+    )
 
     if normalizedScore <= Difficulty.getHighScore(modeId) then
         return false

@@ -23,7 +23,11 @@ local function loadProfile(savedCoins, savedUpgrades, abilityTypes)
     end
 
     local profile = {
-        coins = math.max(0, math.floor(tonumber(savedCoins) or 0)),
+        coins = math.clamp(
+            math.floor(tonumber(savedCoins) or 0),
+            0,
+            tuning.MAX_COINS
+        ),
         upgrades = {}
     }
 
@@ -75,7 +79,11 @@ end
 
 function AbilityProgression.addCoins(amount, isOtherSide)
     local profile = getProfile(isOtherSide)
-    profile.coins = math.max(0, profile.coins + math.floor(tonumber(amount) or 0))
+    profile.coins = math.clamp(
+        profile.coins + math.floor(tonumber(amount) or 0),
+        0,
+        tuning.MAX_COINS
+    )
     return profile.coins
 end
 

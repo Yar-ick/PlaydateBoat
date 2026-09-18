@@ -136,8 +136,8 @@ function RunResultsUI.initialize(gameplayTuning, sfxChannel)
 end
 
 function RunResultsUI.show(score, coins)
-    targetScore = math.max(0, math.floor(score or 0))
-    targetCoins = math.max(0, math.floor(coins or 0))
+    targetScore = math.clamp(math.floor(score or 0), 0, tuning.MAX_SCORE)
+    targetCoins = math.clamp(math.floor(coins or 0), 0, tuning.MAX_COINS)
     displayedScore = 0
     displayedCoins = 0
     previousDisplayedScore = 0

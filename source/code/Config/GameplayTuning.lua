@@ -1,6 +1,8 @@
 -- Central gameplay and presentation tuning. Keeping these values in one table
 -- avoids consuming a separate local-variable slot for every setting in main.lua.
 GameplayTuning = {
+    MAX_SCORE = 9999999,
+    MAX_COINS = 999,
     MAIN_MENU_BOAT_X = 225,
     MAIN_MENU_BOAT_Y = 175,
     OTHER_SIDE_MAIN_MENU_BOAT_X = 235,
