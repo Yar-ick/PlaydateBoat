@@ -189,6 +189,7 @@ end
 
 function ShallowWaters.rewind(displacement)
     playerInside = false
+    local remaining = 0
 
     for index = 1, #areas do
         local area = areas[index]
@@ -198,9 +199,13 @@ function ShallowWaters.rewind(displacement)
 
             if area.x + area.imageWidth / 2 < 0 then
                 deactivate(area)
+            else
+                remaining += 1
             end
         end
     end
+
+    return remaining
 end
 
 function ShallowWaters.reset()

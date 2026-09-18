@@ -1287,7 +1287,7 @@ function OtherSide.rewind(displacement)
     -- Keep it moving during the rewind, then reset any remainder when the menu
     -- transition starts.
     OilStains.rewind(displacement)
-    ShallowWaters.rewind(displacement)
+    remaining += ShallowWaters.rewind(displacement)
 
     if impulseActive then
         impulseX += displacement
