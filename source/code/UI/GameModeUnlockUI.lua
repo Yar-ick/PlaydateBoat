@@ -30,6 +30,7 @@ function GameModeUnlockUI.initialize(gameplayTuning, savedUnlocks, sfxChannel)
     tuning = gameplayTuning
     savedUnlocks = type(savedUnlocks) == "table" and savedUnlocks or {}
     presented = {
+        normal = savedUnlocks.normal == true,
         hardcore = savedUnlocks.hardcore == true,
         otherSide = savedUnlocks.otherSide == true
     }
@@ -202,6 +203,7 @@ end
 
 function GameModeUnlockUI.getSaveData()
     return {
+        normal = presented.normal == true,
         hardcore = presented.hardcore == true,
         otherSide = presented.otherSide == true
     }

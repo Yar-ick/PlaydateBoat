@@ -246,7 +246,11 @@ GameplayTuning = {
                 SPAWN_CHANCE_PERCENT = 75,
                 MINIMUM_INTERVAL_MS = 6000,
                 MAXIMUM_INTERVAL_MS = 12000
-            }
+            },
+
+            UNLOCK_MODE_ID = "casual",
+            UNLOCK_MODE_TITLE = "CASUAL",
+            UNLOCK_SCORE = 75000
         },
         {
             ID = "hardcore",

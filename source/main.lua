@@ -485,6 +485,10 @@ function GameplayProgress.addScore(amount)
 end
 
 function GameplayProgress.startPendingModeUnlock()
+    if Difficulty.isModeUnlockedById("normal") then
+        GameModeUnlockUI.queue("normal", "NORMAL")
+    end
+
     if Difficulty.isModeUnlockedById("hardcore") then
         GameModeUnlockUI.queue("hardcore", "HARDCORE")
     end
