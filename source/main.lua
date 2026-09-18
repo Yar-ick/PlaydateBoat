@@ -36,6 +36,7 @@ import "code/UI/AbilityTopUI"
 import "code/UI/FixedWidthNumber"
 import "code/UI/RunResultsUI"
 import "code/UI/DifficultyMenuUI"
+import "code/UI/GameModeUnlockUI"
 import "code/UI/MainMenuHUDAnimation"
 import "code/UI/MenuCrankNavigation"
 import "code/UI/UpgradeMenuUI"
@@ -340,6 +341,7 @@ AbilityProgression.initialize(savedProgress, TUNING)
 Difficulty.setSecretModeUnlocked(AbilityProgression.areRegularAbilitiesMaxed())
 Difficulty.initialize(savedProgress, TUNING)
 GameModes.refreshActiveMode()
+GameModeUnlockUI.initialize(TUNING, savedProgress.modeUnlocks, sfxChannel)
 
 local function isAbilityPurchased(abilityType)
     return GameModes.active:isAbilityPurchased(abilityType)
@@ -383,6 +385,7 @@ local function saveProgress()
         audioMode = selectedAudioMode,
         uiMode = selectedUiMode,
         difficulty = Difficulty.getSaveData(),
+        modeUnlocks = GameModeUnlockUI.getSaveData(),
         upgrades = abilityProgress.upgrades,
         otherSide = abilityProgress.otherSide
     }
@@ -479,6 +482,31 @@ function GameplayProgress.addScore(amount)
         0,
         TUNING.MAX_SCORE
     )
+end
+
+function GameplayProgress.startPendingModeUnlock()
+    if Difficulty.isModeUnlockedById("hardcore") then
+        GameModeUnlockUI.queue("hardcore", "HARDCORE")
+    end
+
+    if Difficulty.isModeUnlockedById("otherSide") then
+        GameModeUnlockUI.queue("otherSide", "THE OTHER SIDE")
+    end
+
+    local pendingUnlock = GameModeUnlockUI.peekNext()
+    if pendingUnlock == nil then
+        return false
+    end
+
+    if Difficulty.selectModeById(pendingUnlock.id) == false then
+        return false
+    end
+
+    GameModes.refreshActiveMode()
+    GameModeUnlockUI.beginNext()
+    ScreenShake.start(TUNING.MODE_UNLOCK_SCREEN_SHAKE)
+    markProgressChanged()
+    return true
 end
 
 local scoreTimer = pd.timer.new(1000, function()
@@ -2075,6 +2103,7 @@ local function enterMainMenu()
     ))
     playerSprite:moveTo(playerX, playerY)
     startMenuMusic()
+    GameplayProgress.startPendingModeUnlock()
 end
 
 local function startLaunchTransition()
@@ -2174,6 +2203,10 @@ pd.getSystemMenu():addMenuItem("Main menu", function()
         and BoatGameState ~= GameState.CRASH_EXPLOSION
         and BoatGameState ~= GameState.RESULTS_CLOSED_DELAY
     then
+        if Difficulty.recordScore(playerScore) then
+            markProgressChanged()
+        end
+
         GameplayProgress.pause()
         stopGameplayLoopSounds()
         BirdDecoration.stopSpawning()
@@ -2474,6 +2507,7 @@ function playdate.update()
             upgradeMenuState.closing = false
             MenuCrankNavigation.reset()
             MainMenuHUDAnimation.show()
+            GameplayProgress.startPendingModeUnlock()
         end
 
         return
@@ -2492,9 +2526,13 @@ function playdate.update()
             TUNING.MAIN_MENU_WATER_CENTER_Y
         )
         updateMainMenuBoatFloat(elapsedMilliseconds)
+        if GameModeUnlockUI.update(elapsedMilliseconds) then
+            GameplayProgress.startPendingModeUnlock()
+        end
         local completedMenuAction = MainMenuHUDAnimation.update(elapsedMilliseconds, TUNING)
         local leftHudOffsetX, rightHudOffsetX = MainMenuHUDAnimation.getOffsets(TUNING)
 
+        ScreenShake.applyDrawOffset()
         pdg.sprite.update()
         mainMenuImages.hud:draw(rightHudOffsetX, 0)
         local previousFont = pdg.getFont()
@@ -2520,6 +2558,12 @@ function playdate.update()
             TUNING,
             leftHudOffsetX
         )
+        ScreenShake.clearDrawOffset()
+        GameModeUnlockUI.draw()
+
+        if GameModeUnlockUI.isActive() then
+            return
+        end
 
         if completedMenuAction == "start" then
             startLaunchTransition()

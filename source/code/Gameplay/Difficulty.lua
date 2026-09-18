@@ -101,6 +101,24 @@ function Difficulty.isSelectedModeUnlocked()
     return isModeUnlocked(Difficulty.getSelectedMode())
 end
 
+function Difficulty.isModeUnlockedById(modeId)
+    local modeIndex = findModeIndex(modeId)
+    return modeIndex ~= nil and isModeUnlocked(tuning.DIFFICULTY_MODES[modeIndex])
+end
+
+function Difficulty.selectModeById(modeId)
+    local modeIndex = findModeIndex(modeId)
+
+    if modeIndex == nil or isModeUnlocked(tuning.DIFFICULTY_MODES[modeIndex]) == false then
+        return false
+    end
+
+    selectedModeIndex = modeIndex
+    persistedModeId = modeId
+    refreshSelectedModeCache()
+    return true
+end
+
 function Difficulty.isOtherSideMode()
     return selectedModeIsOtherSide
 end
