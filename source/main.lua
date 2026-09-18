@@ -12,7 +12,7 @@ import "code/Collectables/Collectable"
 import "code/Collectables/CoinCollectable"
 import "code/Collectables/ShieldCollectable"
 import "code/Collectables/ShrinkCollectable"
-import "code/Collectables/GrowthCollectable"
+import "code/Collectables/ImpulseCollectable"
 import "code/Collectables/SpeedReductionCollectable"
 import "code/Gameplay/BoatJump"
 import "code/Gameplay/AbilityProgression"
@@ -94,7 +94,7 @@ local coinImagetable = pdg.imagetable.new("images/Coin")
 local starImage = pdg.image.new("images/Star")
 local shieldCollectableImage = pdg.image.new("images/ShieldNoFrame")
 local shrinkCollectableImage = pdg.image.new("images/SrinkNoFrame")
-local growthCollectableImage = pdg.image.new("images/Growth")
+local impulseCollectableImage = pdg.image.new("images/Growth")
 local speedReductionCollectableImage = pdg.image.new("images/SpeedReductionNoFrame")
 
 local selectAbilitySoundPlayer = pds.sampleplayer.new("sounds/SelectAbility")
@@ -728,14 +728,22 @@ end
 
 local collectablesByType = {}
 local collectableSpawnRemainingMilliseconds = {}
-local collectableTypes <const> = { "coin", "shield", "shrink", "growth", "speedReduction" }
+local collectableTypes <const> = { "coin", "shield", "shrink", "impulse", "speedReduction" }
 
 local function isCollectableAvailable(collectableType)
     return GameModes.active:isCollectableAvailable(collectableType)
 end
 
 local function canSpawnCollectable(collectableType)
-    if isCollectableAvailable(collectableType) == false then
+    if Difficulty.hasCollectableSpawnConfig(collectableType) == false
+        or isCollectableAvailable(collectableType) == false
+    then
+        return false
+    end
+
+    if collectableType == "shield"
+        and shieldHitsRemaining >= GameModes.active:getMaximumShieldHits()
+    then
         return false
     end
 
@@ -781,8 +789,8 @@ local function onShrinkCollected()
     playSoundOneShot(shrinkSoundPlayer)
 end
 
-local function onGrowthCollected()
-    if isAbilityPurchased("growth") == false then
+local function onImpulseCollected()
+    if isAbilityPurchased("impulse") == false then
         return
     end
 
@@ -806,7 +814,7 @@ end
 collectablesByType.coin = CoinCollectable(coinImagetable, onCoinCollected)
 collectablesByType.shield = ShieldCollectable(shieldCollectableImage, onShieldCollected)
 collectablesByType.shrink = ShrinkCollectable(shrinkCollectableImage, onShrinkCollected)
-collectablesByType.growth = GrowthCollectable(growthCollectableImage, onGrowthCollected)
+collectablesByType.impulse = ImpulseCollectable(impulseCollectableImage, onImpulseCollected)
 collectablesByType.speedReduction =
     SpeedReductionCollectable(speedReductionCollectableImage, onSpeedReductionCollected)
 
@@ -816,15 +824,13 @@ for i = 1, #collectableTypes do
     collectable:setZIndex(TUNING.COLLECTABLE_Z_INDEX)
     collectableSprites[#collectableSprites + 1] = collectable
 
-    local config = TUNING.COLLECTABLE_SPAWN_CONFIG[collectableType]
     collectableSpawnRemainingMilliseconds[collectableType] =
-        Difficulty.getRandomCollectableInterval(config, collectableType)
+        Difficulty.getRandomCollectableInterval(collectableType)
 end
 
 local function resetCollectableSpawnCountdown(collectableType)
-    local config = TUNING.COLLECTABLE_SPAWN_CONFIG[collectableType]
     collectableSpawnRemainingMilliseconds[collectableType] =
-        Difficulty.getRandomCollectableInterval(config, collectableType)
+        Difficulty.getRandomCollectableInterval(collectableType)
 end
 
 local function spawnCollectable(collectable)
@@ -868,11 +874,10 @@ local function updateCollectables(elapsedMilliseconds, worldDisplacement)
             collectableSpawnRemainingMilliseconds[collectableType] = remaining
 
             if remaining <= 0 then
-                local config = TUNING.COLLECTABLE_SPAWN_CONFIG[collectableType]
                 resetCollectableSpawnCountdown(collectableType)
 
                 if math.random() * 100
-                    <= Difficulty.getCollectableSpawnChance(config, collectableType)
+                    <= Difficulty.getCollectableSpawnChance(collectableType)
                 then
                     spawnCollectable(collectable)
                 end
@@ -1015,13 +1020,13 @@ local function startHorn()
 end
 
 function GameplayProgress.startImpulse()
-    if isAbilityPurchased("growth") == false
+    if isAbilityPurchased("impulse") == false
         or GameplayProgress.impulseCharge <= 0
     then
         return false
     end
 
-    local impulseLevel = math.max(0, GameModes.active:getAbilityLevel("growth"))
+    local impulseLevel = math.max(0, GameModes.active:getAbilityLevel("impulse"))
 
     if OtherSide.startImpulse(
         playerX,
@@ -2157,6 +2162,7 @@ local function beginGameplay()
     scoreTimer:start()
     velocityIncreaseTimer:reset()
     velocityIncreaseTimer:start()
+    resetCollectables()
 
     for i = 1, TUNING.MAX_ROCKS do
         resetRockPosition(rockSprites[i])

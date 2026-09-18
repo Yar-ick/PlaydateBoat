@@ -6,7 +6,7 @@ function TheOtherSideGameMode:init(tuning)
         playerImagePath = "images/Steamboat",
         musicPath = "sounds/Hymn of Valor",
         primaryAbilityType = "horn",
-        secondaryAbilityType = "growth",
+        secondaryAbilityType = "impulse",
         menuBoatX = tuning.OTHER_SIDE_MAIN_MENU_BOAT_X,
         menuBoatY = tuning.OTHER_SIDE_MAIN_MENU_BOAT_Y,
         menuBoatFrameIndex = tuning.OTHER_SIDE_MAIN_MENU_BOAT_FRAME_INDEX,
@@ -19,8 +19,16 @@ function TheOtherSideGameMode:init(tuning)
 end
 
 function TheOtherSideGameMode:isCollectableAvailable(collectableType)
-    return collectableType == "coin"
-        or (collectableType ~= "shrink" and self:isAbilityPurchased(collectableType))
+    if collectableType == "coin" then
+        return true
+    end
+
+    if collectableType == "impulse" then
+        return self:isAbilityPurchased("impulse")
+    end
+
+    return (collectableType == "shield" or collectableType == "speedReduction")
+        and self:isAbilityPurchased(collectableType)
 end
 
 function TheOtherSideGameMode:getSecondaryAbilityProgress(shrinkProgress, impulseCharge)

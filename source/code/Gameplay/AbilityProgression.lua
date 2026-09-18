@@ -33,7 +33,14 @@ local function loadProfile(savedCoins, savedUpgrades, abilityTypes)
 
     for index = 1, #abilityTypes do
         local abilityType = abilityTypes[index]
-        profile.upgrades[abilityType] = loadLevel(savedUpgrades[abilityType])
+        local savedLevel = savedUpgrades[abilityType]
+
+        -- Migrate saves created before the Other Side ability was named Impulse.
+        if abilityType == "impulse" and savedLevel == nil then
+            savedLevel = savedUpgrades.growth
+        end
+
+        profile.upgrades[abilityType] = loadLevel(savedLevel)
     end
 
     return profile

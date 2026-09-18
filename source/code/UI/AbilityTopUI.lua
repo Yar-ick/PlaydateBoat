@@ -4,7 +4,7 @@ local abilityFrameImage = pdg.image.new("images/AbilityFrame")
 local dashImage = pdg.image.new("images/Dash")
 local hornImage = pdg.image.new("images/Horn")
 local shrinkImage = pdg.image.new("images/Srink")
-local growthImage = pdg.image.new("images/Growth")
+local impulseImage = pdg.image.new("images/Growth")
 local shieldStackImages = {
     pdg.image.new("images/ShieldNoStack"),
     pdg.image.new("images/Shield1Stack"),
@@ -25,7 +25,7 @@ local fadedAbilityImages = {
     [dashImage] = makeFadedImage(dashImage),
     [hornImage] = makeFadedImage(hornImage),
     [shrinkImage] = makeFadedImage(shrinkImage),
-    [growthImage] = makeFadedImage(growthImage)
+    [impulseImage] = makeFadedImage(impulseImage)
 }
 
 AbilityTopUI = {}
@@ -95,7 +95,7 @@ function AbilityTopUI.draw(
 )
     xOffset = xOffset or 0
     local primaryImage = isOtherSide and hornImage or dashImage
-    local scaleImage = isOtherSide and growthImage or shrinkImage
+    local scaleImage = isOtherSide and impulseImage or shrinkImage
     local abilitySpacing = tuning.TOP_UI_SHRINK_FRAME_X - tuning.TOP_UI_DASH_FRAME_X
     local nextAbilityFrameX = tuning.TOP_UI_DASH_FRAME_X
     local firstShieldX = tuning.TOP_UI_SHIELD_FIRST_X - abilitySpacing * 2

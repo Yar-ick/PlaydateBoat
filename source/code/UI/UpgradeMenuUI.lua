@@ -12,7 +12,7 @@ local images = {
     horn = pdg.image.new("images/Horn"),
     shield = pdg.image.new("images/Shield"),
     shrink = pdg.image.new("images/Srink"),
-    growth = pdg.image.new("images/Growth"),
+    impulse = pdg.image.new("images/Growth"),
     speedReduction = pdg.image.new("images/SpeedReductionNoFrame")
 }
 
@@ -64,11 +64,11 @@ local otherSideAbilities = {
         image = images.shield
     },
     {
-        type = "growth",
+        type = "impulse",
         title = "IMPULSE",
         description = "Break rocks and push small boats.",
         upgradeDescription = "Upgrade: increase radius.",
-        image = images.growth,
+        image = images.impulse,
         imageYOffset = 1
     },
     {

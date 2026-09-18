@@ -148,25 +148,51 @@ GameplayTuning = {
     DIFFICULTY_MENU_PANEL_Y = 6,
     DIFFICULTY_MENU_PANEL_WIDTH = 153,
     DIFFICULTY_MENU_PANEL_HEIGHT = 228,
+
     DIFFICULTY_MODES = {
         {
             ID = "casual",
             TITLE = "CASUAL",
+
             DESCRIPTION_LINES = {
                 "Frequent abilities",
                 "Normal speed",
                 "1 coin per pickup"
             },
+
             COIN_REWARD = 1,
-            ABILITY_SPAWN_CHANCE_MULTIPLIER = 1,
-            ABILITY_SPAWN_INTERVAL_MULTIPLIER = 1,
+            COLLECTABLE_SPAWN_CONFIG = {
+                coin = {
+                    spawnChancePercent = 60,
+                    minimumIntervalMs = 3000,
+                    maximumIntervalMs = 8000
+                },
+                shield = {
+                    spawnChancePercent = 100,
+                    minimumIntervalMs = 10000,
+                    maximumIntervalMs = 20000
+                },
+                shrink = {
+                    spawnChancePercent = 75,
+                    minimumIntervalMs = 10000,
+                    maximumIntervalMs = 18000
+                },
+                speedReduction = {
+                    spawnChancePercent = 50,
+                    minimumIntervalMs = 12000,
+                    maximumIntervalMs = 20000
+                }
+            },
+
             MAX_WORLD_VELOCITY = 7,
             WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.15,
+
             STEAMBOAT_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 65,
                 MINIMUM_INTERVAL_MS = 30000,
                 MAXIMUM_INTERVAL_MS = 40000
             },
+
             WHIRLPOOL_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 65,
                 MINIMUM_INTERVAL_MS = 8000,
@@ -176,21 +202,46 @@ GameplayTuning = {
         {
             ID = "normal",
             TITLE = "NORMAL",
+
             DESCRIPTION_LINES = {
                 "Fewer abilities",
                 "High speed",
                 "2 coins per pickup"
             },
+
             COIN_REWARD = 2,
-            ABILITY_SPAWN_CHANCE_MULTIPLIER = 0.65,
-            ABILITY_SPAWN_INTERVAL_MULTIPLIER = 1.25,
+            COLLECTABLE_SPAWN_CONFIG = {
+                coin = {
+                    spawnChancePercent = 60,
+                    minimumIntervalMs = 3000,
+                    maximumIntervalMs = 8000
+                },
+                shield = {
+                    spawnChancePercent = 100,
+                    minimumIntervalMs = 15000,
+                    maximumIntervalMs = 25000
+                },
+                shrink = {
+                    spawnChancePercent = 55,
+                    minimumIntervalMs = 12500,
+                    maximumIntervalMs = 22500
+                },
+                speedReduction = {
+                    spawnChancePercent = 35,
+                    minimumIntervalMs = 15000,
+                    maximumIntervalMs = 25000
+                }
+            },
+
             MAX_WORLD_VELOCITY = 8,
             WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.18,
+
             STEAMBOAT_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 85,
                 MINIMUM_INTERVAL_MS = 20000,
                 MAXIMUM_INTERVAL_MS = 30000
             },
+
             WHIRLPOOL_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 75,
                 MINIMUM_INTERVAL_MS = 6000,
@@ -200,26 +251,52 @@ GameplayTuning = {
         {
             ID = "hardcore",
             TITLE = "HARDCORE",
+
             DESCRIPTION_LINES = {
                 "Rare abilities",
                 "Highest speed",
                 "3 coins per pickup"
             },
+
             COIN_REWARD = 3,
-            ABILITY_SPAWN_CHANCE_MULTIPLIER = 0.25,
-            ABILITY_SPAWN_INTERVAL_MULTIPLIER = 2,
+            COLLECTABLE_SPAWN_CONFIG = {
+                coin = {
+                    spawnChancePercent = 60,
+                    minimumIntervalMs = 3000,
+                    maximumIntervalMs = 8000
+                },
+                shield = {
+                    spawnChancePercent = 35,
+                    minimumIntervalMs = 10000,
+                    maximumIntervalMs = 16000
+                },
+                shrink = {
+                    spawnChancePercent = 25,
+                    minimumIntervalMs = 20000,
+                    maximumIntervalMs = 36000
+                },
+                speedReduction = {
+                    spawnChancePercent = 15,
+                    minimumIntervalMs = 24000,
+                    maximumIntervalMs = 40000
+                }
+            },
+
             MAX_WORLD_VELOCITY = 9,
             WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.32,
+
             STEAMBOAT_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 100,
                 MINIMUM_INTERVAL_MS = 17500,
                 MAXIMUM_INTERVAL_MS = 25000
             },
+
             WHIRLPOOL_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 85,
                 MINIMUM_INTERVAL_MS = 5000,
                 MAXIMUM_INTERVAL_MS = 11000
             },
+
             UNLOCK_MODE_ID = "normal",
             UNLOCK_MODE_TITLE = "NORMAL",
             UNLOCK_SCORE = 100000
@@ -228,22 +305,48 @@ GameplayTuning = {
             ID = "otherSide",
             TITLE = "THE OTHER SIDE",
             LOCKED_TITLE = "???",
+
             DESCRIPTION_LINES = {
                 "Clean the river",
                 "from rocks",
                 "and oil"
             },
+
             LOCKED_DESCRIPTION_LINES = {
                 "Fully upgrade all",
                 "abilities to unlock"
             },
+
             IS_OTHER_SIDE = true,
             UNLOCK_ALL_ABILITIES = true,
+            
             COIN_REWARD = 1,
-            ABILITY_SPAWN_CHANCE_MULTIPLIER = 1,
-            ABILITY_SPAWN_INTERVAL_MULTIPLIER = 1,
+            COLLECTABLE_SPAWN_CONFIG = {
+                coin = {
+                    spawnChancePercent = 60,
+                    minimumIntervalMs = 3000,
+                    maximumIntervalMs = 8000
+                },
+                shield = {
+                    spawnChancePercent = 35,
+                    minimumIntervalMs = 5000,
+                    maximumIntervalMs = 8000
+                },
+                impulse = {
+                    spawnChancePercent = 100,
+                    minimumIntervalMs = 10000,
+                    maximumIntervalMs = 18000
+                },
+                speedReduction = {
+                    spawnChancePercent = 20,
+                    minimumIntervalMs = 12000,
+                    maximumIntervalMs = 20000
+                }
+            },
+
             MAX_WORLD_VELOCITY = 5,
             WORLD_VELOCITY_GROWTH_MULTIPLIER = 1.12,
+
             STEAMBOAT_SPAWN_CONFIG = {
                 SPAWN_CHANCE_PERCENT = 0,
                 MINIMUM_INTERVAL_MS = 60000,
@@ -251,6 +354,7 @@ GameplayTuning = {
             }
         }
     },
+
     UPGRADE_MENU_SLIDE_DURATION_MS = 500,
     UPGRADE_MENU_MESSAGE_DURATION_MS = 1500,
     MENU_CRANK_TICKS_PER_REVOLUTION = 6,
@@ -259,18 +363,21 @@ GameplayTuning = {
     GAMEPLAY_ENTRY_BOAT_Y = 120,
     GAMEPLAY_ENTRY_BOAT_ANGLE = 275,
     OTHER_SIDE_GAMEPLAY_ENTRY_BOAT_ANGLE = 265,
+
     WAKEBREAKER_PLAYER_CLAMP = {
         LEFT_SCALED_WIDTH_FRACTION = 0.5,
         RIGHT_SCALED_WIDTH_FRACTION = 2 / 3,
         TOP_UNSCALED_HEIGHT_FRACTION = 0.5,
         BOTTOM_SCALED_HEIGHT_FRACTION = 1 / 3
     },
+
     OTHER_SIDE_PLAYER_CLAMP = {
         LEFT_SCALED_WIDTH_FRACTION = 0.5,
         RIGHT_SCALED_WIDTH_FRACTION = 1 / 4,
         TOP_UNSCALED_HEIGHT_FRACTION = 0.5,
         BOTTOM_SCALED_HEIGHT_FRACTION = 1 / 5
     },
+
     MENU_LAUNCH_CURVE = {
         SPLIT = 0.55,
         FIRST_CONTROL_X = 225,
@@ -285,6 +392,7 @@ GameplayTuning = {
         FINAL_CONTROL_Y = 195,
         FINAL_ROTATION_START = 0.72
     },
+
     OTHER_SIDE_MENU_LAUNCH_CURVE = {
         SPLIT = 0.6,
         FIRST_CONTROL_X = 235,
@@ -299,6 +407,7 @@ GameplayTuning = {
         FINAL_CONTROL_Y = 120,
         FINAL_ROTATION_START = 0.68
     },
+
     MENU_BOAT_ROTATION_RESPONSE_PER_SECOND = 10,
     MENU_LAUNCH_DURATION_MS = 1800,
     OTHER_SIDE_MENU_LAUNCH_DURATION_MS = 3000,
@@ -316,6 +425,7 @@ GameplayTuning = {
         FREQUENCY_HZ = 14,
         DECAY_POWER = 1.5
     },
+
     DEATH_SCREEN_SHAKE = {
         DURATION_MS = 650,
         HORIZONTAL_AMPLITUDE = 10,
@@ -323,6 +433,7 @@ GameplayTuning = {
         FREQUENCY_HZ = 12,
         DECAY_POWER = 1.25
     },
+
     STEAMBOAT_EXPLOSION_SCREEN_SHAKE = {
         DURATION_MS = 420,
         HORIZONTAL_AMPLITUDE = 7,
@@ -365,6 +476,7 @@ GameplayTuning = {
     OTHER_SIDE_BIG_ROCK_EDGE_INSET = 0,
     OTHER_SIDE_BIG_ROCK_BOUNCE_COOLDOWN_MS = 300,
     OTHER_SIDE_BIG_ROCK_BOUNCE_SOUND_VOLUME = 0.8,
+
     OTHER_SIDE_BIG_ROCK_BOUNCE_SCREEN_SHAKE = {
         DURATION_MS = 180,
         HORIZONTAL_AMPLITUDE = 3,
@@ -372,6 +484,7 @@ GameplayTuning = {
         FREQUENCY_HZ = 16,
         DECAY_POWER = 1.5
     },
+
     OTHER_SIDE_HORN_VOLUME = 0.75,
     OTHER_SIDE_HORN_DURATION_MS_BY_LEVEL = { 2000, 3000, 4000, 5000 },
     OTHER_SIDE_HORN_WARNING_RADIUS_X = 100,
@@ -394,6 +507,7 @@ GameplayTuning = {
     OTHER_SIDE_IMPULSE_PICKUP_SOUND_VOLUME = 0.35,
     OTHER_SIDE_IMPULSE_PICKUP_SOUND_RATE = 1.15,
     OTHER_SIDE_IMPULSE_PICKUP_SOUND_OFFSET_SECONDS = 0.08,
+
     OTHER_SIDE_IMPULSE_SCREEN_SHAKE_BY_LEVEL = {
         {
             DURATION_MS = 220,
@@ -424,6 +538,7 @@ GameplayTuning = {
             DECAY_POWER = 1.35
         }
     },
+
     OTHER_SIDE_SMALL_BOAT_POOL_SIZE = 4,
     OTHER_SIDE_SMALL_BOAT_MINIMUM_INTERVAL_MS = 4500,
     OTHER_SIDE_SMALL_BOAT_MAXIMUM_INTERVAL_MS = 8000,
@@ -782,35 +897,6 @@ GameplayTuning = {
     BIRD_Z_INDEX = 100,
     MAIN_MENU_Z_INDEX = -900,
 
-    -- Each inactive collectable waits for its interval and then rolls its chance.
-    COLLECTABLE_SPAWN_CONFIG = {
-        coin = {
-            spawnChancePercent = 60,
-            minimumIntervalMs = 3000,
-            maximumIntervalMs = 8000
-        },
-        shield = {
-            spawnChancePercent = 35,
-            minimumIntervalMs = 5000,
-            maximumIntervalMs = 8000
-        },
-        shrink = {
-            spawnChancePercent = 100,
-            minimumIntervalMs = 10000,
-            maximumIntervalMs = 18000
-        },
-        growth = {
-            spawnChancePercent = 100,
-            minimumIntervalMs = 10000,
-            maximumIntervalMs = 18000
-        },
-        speedReduction = {
-            spawnChancePercent = 20,
-            minimumIntervalMs = 12000,
-            maximumIntervalMs = 20000
-        }
-    },
-
     -- Spawn frequency, chance, and pool size can be tuned independently per type.
     DECORATION_SPAWN_CONFIG = {
         {
@@ -834,7 +920,7 @@ GameplayTuning = {
     -- Level -1 is locked, level 0 is purchased, and levels 1-3 are upgrades.
     LOCKED_ABILITY_LEVEL = -1,
     REGULAR_ABILITY_TYPES = { "dash", "shield", "shrink", "speedReduction" },
-    OTHER_SIDE_ABILITY_TYPES = { "horn", "shield", "growth", "speedReduction" },
+    OTHER_SIDE_ABILITY_TYPES = { "horn", "shield", "impulse", "speedReduction" },
     SHIELD_HITS_BY_LEVEL = { 1, 2, 3, 4 },
     MAX_SHIELD_HITS = 12,
     OTHER_SIDE_MAX_SHIELD_HITS = 6,
@@ -860,14 +946,14 @@ GameplayTuning = {
     OTHER_SIDE_ABILITY_PURCHASE_COSTS = {
         horn = 5,
         shield = 5,
-        growth = 5,
+        impulse = 5,
         speedReduction = 10
     },
 
     OTHER_SIDE_ABILITY_UPGRADE_COSTS = {
         horn = { 15, 30, 50 },
         shield = { 15, 30, 50 },
-        growth = { 15, 30, 50 },
+        impulse = { 15, 30, 50 },
         speedReduction = { 15, 30, 50 }
     },
 

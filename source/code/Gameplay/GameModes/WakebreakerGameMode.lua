@@ -20,7 +20,7 @@ end
 
 function WakebreakerGameMode:isCollectableAvailable(collectableType)
     return collectableType == "coin"
-        or (collectableType ~= "growth" and self:isAbilityPurchased(collectableType))
+        or (collectableType ~= "impulse" and self:isAbilityPurchased(collectableType))
 end
 
 function WakebreakerGameMode:getWakeParameters(

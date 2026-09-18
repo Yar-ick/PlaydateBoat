@@ -172,33 +172,33 @@ function Difficulty.getWorldVelocityGrowthMultiplier()
     return Difficulty.getSelectedMode().WORLD_VELOCITY_GROWTH_MULTIPLIER
 end
 
-function Difficulty.getRandomCollectableInterval(baseConfig, collectableType)
-    local multiplier = 1
+function Difficulty.getRandomCollectableInterval(collectableType)
+    local config = Difficulty.getSelectedMode().COLLECTABLE_SPAWN_CONFIG[collectableType]
 
-    if collectableType ~= "coin" then
-        multiplier = Difficulty.getSelectedMode().ABILITY_SPAWN_INTERVAL_MULTIPLIER
+    if config == nil then
+        return nil
     end
 
-    local minimumInterval = math.max(1, math.floor(baseConfig.minimumIntervalMs * multiplier + 0.5))
+    local minimumInterval = math.max(1, math.floor(config.minimumIntervalMs + 0.5))
     local maximumInterval = math.max(
         minimumInterval,
-        math.floor(baseConfig.maximumIntervalMs * multiplier + 0.5)
+        math.floor(config.maximumIntervalMs + 0.5)
     )
 
     return math.random(minimumInterval, maximumInterval)
 end
 
-function Difficulty.getCollectableSpawnChance(baseConfig, collectableType)
-    if collectableType == "coin" then
-        return baseConfig.spawnChancePercent
+function Difficulty.getCollectableSpawnChance(collectableType)
+    local config = Difficulty.getSelectedMode().COLLECTABLE_SPAWN_CONFIG[collectableType]
+    if config == nil then
+        return 0
     end
 
-    return math.clamp(
-        baseConfig.spawnChancePercent
-            * Difficulty.getSelectedMode().ABILITY_SPAWN_CHANCE_MULTIPLIER,
-        0,
-        100
-    )
+    return math.clamp(config.spawnChancePercent, 0, 100)
+end
+
+function Difficulty.hasCollectableSpawnConfig(collectableType)
+    return Difficulty.getSelectedMode().COLLECTABLE_SPAWN_CONFIG[collectableType] ~= nil
 end
 
 function Difficulty.getSaveData()
