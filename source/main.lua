@@ -3332,5 +3332,5 @@ function playdate.update()
     drawHud()
     ScoreFlyEffect.draw()
 
-    pd.drawFPS(200, 0)
+    -- pd.drawFPS(200, 0)
 end
