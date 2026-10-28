@@ -39,6 +39,7 @@ import "code/UI/DifficultyMenuUI"
 import "code/UI/GameModeUnlockUI"
 import "code/UI/MainMenuHUDAnimation"
 import "code/UI/MenuCrankNavigation"
+import "code/UI/ScoreboardUI"
 import "code/UI/UpgradeMenuUI"
 import "code/UI/WaitingControlsUI"
 
@@ -73,7 +74,8 @@ local GameState = {
     UPGRADE_MENU = 8,
     RUN_RESULTS = 9,
     CRASH_EXPLOSION = 10,
-    RESULTS_CLOSED_DELAY = 11
+    RESULTS_CLOSED_DELAY = 11,
+    SCOREBOARD_MENU = 12
 }
 
 local BoatGameState = GameState.MAIN_MENU
@@ -1107,6 +1109,11 @@ local upgradeMenuState = {
     messageRemainingMilliseconds = 0,
     pendingUpgradeSoundPlayer = nil,
     isOtherSide = false
+}
+
+local scoreboardMenuState = {
+    progress = 0,
+    closing = false
 }
 
 local function purchaseAbilityUpgrade(abilityType)
@@ -2207,6 +2214,8 @@ end
 
 pd.getSystemMenu():addMenuItem("Main menu", function()
     if BoatGameState ~= GameState.MAIN_MENU
+        and BoatGameState ~= GameState.UPGRADE_MENU
+        and BoatGameState ~= GameState.SCOREBOARD_MENU
         and BoatGameState ~= GameState.CRASH_REWIND
         and BoatGameState ~= GameState.RETURNING_TO_MENU
         and BoatGameState ~= GameState.RUN_RESULTS
@@ -2523,6 +2532,89 @@ function playdate.update()
         return
     end
 
+    if BoatGameState == GameState.SCOREBOARD_MENU then
+        stopBoatEngineSound()
+        stopWaterFlowSound()
+        startMenuMusic()
+
+        local initialWorldDisplacement = math.max(
+            TUNING.MINIMUM_WORLD_PIXEL_DISPLACEMENT,
+            math.floor(TUNING.INITIAL_WORLD_VELOCITY + 0.5)
+        )
+        setWaterTransform(
+            waterScrollX + getWaterVisualDisplacement(initialWorldDisplacement),
+            TUNING.MAIN_MENU_WATER_CENTER_Y
+        )
+
+        if scoreboardMenuState.closing then
+            scoreboardMenuState.progress = math.max(
+                0,
+                scoreboardMenuState.progress
+                    - elapsedMilliseconds / TUNING.SCOREBOARD_MENU_SLIDE_DURATION_MS
+            )
+        else
+            scoreboardMenuState.progress = math.min(
+                1,
+                scoreboardMenuState.progress
+                    + elapsedMilliseconds / TUNING.SCOREBOARD_MENU_SLIDE_DURATION_MS
+            )
+        end
+
+        if scoreboardMenuState.progress >= 1 and scoreboardMenuState.closing == false then
+            local modeSelectionDelta = 0
+            local scrollDelta = 0
+
+            if pd.buttonJustPressed(pd.kButtonLeft) then
+                MenuCrankNavigation.reset()
+                modeSelectionDelta = -1
+            elseif pd.buttonJustPressed(pd.kButtonRight) then
+                MenuCrankNavigation.reset()
+                modeSelectionDelta = 1
+            elseif pd.buttonJustPressed(pd.kButtonUp) then
+                MenuCrankNavigation.reset()
+                scrollDelta = -1
+            elseif pd.buttonJustPressed(pd.kButtonDown) then
+                MenuCrankNavigation.reset()
+                scrollDelta = 1
+            else
+                scrollDelta = MenuCrankNavigation.getSelectionDelta(
+                    TUNING.MENU_CRANK_TICKS_PER_REVOLUTION
+                )
+            end
+
+            if modeSelectionDelta ~= 0 then
+                if ScoreboardUI.changeMode(modeSelectionDelta) then
+                    playSoundOneShot(selectAbilitySoundPlayer)
+                else
+                    playSoundOneShot(noUpgradeSoundPlayer)
+                end
+            elseif scrollDelta ~= 0 then
+                if ScoreboardUI.scroll(scrollDelta, TUNING) then
+                    playSoundOneShot(selectAbilitySoundPlayer)
+                end
+            elseif pd.buttonJustPressed(pd.kButtonB) then
+                scoreboardMenuState.closing = true
+                playSoundOneShot(closeUpgradeMenuSoundPlayer)
+            end
+        end
+
+        pdg.sprite.update()
+        local scoreboardProgress = smoothstep(scoreboardMenuState.progress)
+        ScoreboardUI.draw(
+            math.floor(240 * (1 - scoreboardProgress)),
+            TUNING
+        )
+
+        if scoreboardMenuState.closing and scoreboardMenuState.progress <= 0 then
+            BoatGameState = GameState.MAIN_MENU
+            scoreboardMenuState.closing = false
+            MenuCrankNavigation.reset()
+            MainMenuHUDAnimation.show()
+        end
+
+        return
+    end
+
     if BoatGameState == GameState.MAIN_MENU then
         stopBoatEngineSound()
         stopWaterFlowSound()
@@ -2590,6 +2682,13 @@ function playdate.update()
             upgradeMenuState.isOtherSide = GameModes.active:usesOtherSidePresentation()
             MenuCrankNavigation.reset()
             playSoundOneShot(openUpgradeMenuSoundPlayer)
+        elseif completedMenuAction == "scoreboard" then
+            BoatGameState = GameState.SCOREBOARD_MENU
+            scoreboardMenuState.progress = 0
+            scoreboardMenuState.closing = false
+            ScoreboardUI.open(Difficulty.getSelectedModeIndex())
+            MenuCrankNavigation.reset()
+            playSoundOneShot(openUpgradeMenuSoundPlayer)
         elseif MainMenuHUDAnimation.isInteractive() then
             local modeSelectionDelta = 0
 
@@ -2618,6 +2717,12 @@ function playdate.update()
                 end
             elseif pd.buttonJustPressed(pd.kButtonB) then
                 MainMenuHUDAnimation.hide("upgrade")
+            elseif pd.buttonJustPressed(pd.kButtonDown) then
+                if Difficulty.isSelectedModeUnlocked() then
+                    MainMenuHUDAnimation.hide("scoreboard")
+                else
+                    playSoundOneShot(noUpgradeSoundPlayer)
+                end
             end
         end
 

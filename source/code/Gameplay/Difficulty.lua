@@ -97,6 +97,15 @@ function Difficulty.getModeCount()
     return #tuning.DIFFICULTY_MODES
 end
 
+function Difficulty.getMode(modeIndex)
+    return tuning.DIFFICULTY_MODES[modeIndex]
+end
+
+function Difficulty.isModeUnlockedAtIndex(modeIndex)
+    local mode = Difficulty.getMode(modeIndex)
+    return mode ~= nil and isModeUnlocked(mode)
+end
+
 function Difficulty.isSelectedModeUnlocked()
     return isModeUnlocked(Difficulty.getSelectedMode())
 end
