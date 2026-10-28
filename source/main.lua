@@ -2557,6 +2557,11 @@ function playdate.update()
             TUNING.MAIN_MENU_UPGRADE_TEXT_X + rightHudOffsetX,
             TUNING.MAIN_MENU_UPGRADE_TEXT_Y
         )
+        pdg.drawText(
+            "Scoreboard",
+            TUNING.MAIN_MENU_SCOREBOARD_TEXT_X + rightHudOffsetX,
+            TUNING.MAIN_MENU_SCOREBOARD_TEXT_Y
+        )
         pdg.setFont(previousFont)
 
         DifficultyMenuUI.draw(
